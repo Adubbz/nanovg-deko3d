@@ -4,6 +4,7 @@
 #include <map>
 #include <memory>
 #include <vector>
+
 #include "framework/CDescriptorSet.h"
 #include "framework/CMemPool.h"
 #include "framework/CShader.h"
@@ -11,8 +12,7 @@
 #include "nanovg.h"
 
 // Create flags
-enum NVGcreateFlags
-{
+enum NVGcreateFlags {
     // Flag indicating if geometry based anti-aliasing is used (may not be needed when using MSAA).
     NVG_ANTIALIAS 		= 1<<0,
     // Flag indicating if strokes should be drawn using stencil buffer. The rendering will be a little
@@ -30,31 +30,27 @@ enum DKNVGuniformLoc
     DKNVG_MAX_LOCS
 };
 
-enum VKNVGshaderType
-{
+enum VKNVGshaderType {
   NSVG_SHADER_FILLGRAD,
   NSVG_SHADER_FILLIMG,
   NSVG_SHADER_SIMPLE,
   NSVG_SHADER_IMG
 };
 
-struct DKNVGtextureDescriptor
-{
+struct DKNVGtextureDescriptor {
     int width, height;
     int type;
     int flags;
 };
 
-struct DKNVGblend
-{
+struct DKNVGblend {
     int srcRGB;
     int dstRGB;
     int srcAlpha;
     int dstAlpha;
 };
 
-enum DKNVGcallType
-{
+enum DKNVGcallType {
     DKNVG_NONE = 0,
     DKNVG_FILL,
     DKNVG_CONVEXFILL,
@@ -62,8 +58,7 @@ enum DKNVGcallType
     DKNVG_TRIANGLES,
 };
 
-struct DKNVGcall
-{
+struct DKNVGcall {
     int type;
     int image;
     int pathOffset;
@@ -74,16 +69,14 @@ struct DKNVGcall
     DKNVGblend blendFunc;
 };
 
-struct DKNVGpath
-{
+struct DKNVGpath {
     int fillOffset;
     int fillCount;
     int strokeOffset;
     int strokeCount;
 };
 
-struct DKNVGfragUniforms
-{
+struct DKNVGfragUniforms {
     float scissorMat[12]; // matrices are actually 3 vec4s
     float paintMat[12];
     struct NVGcolor innerCol;
@@ -99,11 +92,12 @@ struct DKNVGfragUniforms
     int type;
 };
 
-class DkRenderer;
+namespace nvg {
+    class DkRenderer;
+}
 
-struct DKNVGcontext
-{
-    DkRenderer *renderer;
+struct DKNVGcontext {
+    nvg::DkRenderer *renderer;
     float view[2];
     int fragSize;
     int flags;
@@ -122,100 +116,94 @@ struct DKNVGcontext
     int nuniforms;
 };
 
-class Texture
-{
-    private:
-        int id;
-        dk::Image image;
-        dk::ImageDescriptor imageDescriptor;
-        CMemPool::Handle imageMem;
-        DKNVGtextureDescriptor textureDescriptor;
-    public:
-        Texture(int id);
-        ~Texture();
+namespace nvg {
 
-        void Initialize(CMemPool &imagePool, CMemPool &scratchPool, dk::Device device, dk::Queue transferQueue, int type, int w, int h, int imageFlags, const unsigned char *data);
-        void Update(CMemPool &imagePool, CMemPool &scratchPool, dk::Device device, dk::Queue transferQueue, int type, int w, int h, int imageFlags, const unsigned char *data);
+    class Texture {
+        private:
+            const int m_id;
+            dk::Image m_image;
+            dk::ImageDescriptor m_image_descriptor;
+            CMemPool::Handle m_image_mem;
+            DKNVGtextureDescriptor m_texture_descriptor;
+        public:
+            Texture(int id);
+            ~Texture();
 
-        int GetId();
-        const DKNVGtextureDescriptor *GetDescriptor();
+            void Initialize(CMemPool &image_pool, CMemPool &scratch_pool, dk::Device device, dk::Queue transfer_queue, int type, int w, int h, int image_flags, const u8 *data);
+            void Update(CMemPool &image_pool, CMemPool &scratch_pool, dk::Device device, dk::Queue transfer_queue, int type, int w, int h, int image_flags, const u8 *data);
 
-        dk::Image &GetImage();
-        dk::ImageDescriptor &GetImageDescriptor();
-};
+            int GetId();
+            const DKNVGtextureDescriptor &GetDescriptor();
 
-class DkRenderer
-{
-    private:
-        enum SamplerType : uint8_t
-        {
-            SamplerType_MipFilter = 1 << 0,
-            SamplerType_Nearest   = 1 << 1,
-            SamplerType_RepeatX   = 1 << 2,
-            SamplerType_RepeatY   = 1 << 3,
-            SamplerType_Total     = 0x10,
-        };
+            dk::Image &GetImage();
+            dk::ImageDescriptor &GetImageDescriptor();
+    };
 
-    private:
-        static constexpr unsigned int NumFramebuffers = 2;
-        static constexpr unsigned int DynamicCmdSize = 0x20000;
-        static constexpr unsigned int FragmentUniformSize = sizeof(DKNVGfragUniforms) + 4 - sizeof(DKNVGfragUniforms) % 4;
-        static constexpr unsigned int MaxImages = 0x1000;
+    class DkRenderer {
+        private:
+            enum SamplerType : u8 {
+                SamplerType_MipFilter = 1 << 0,
+                SamplerType_Nearest   = 1 << 1,
+                SamplerType_RepeatX   = 1 << 2,
+                SamplerType_RepeatY   = 1 << 3,
+                SamplerType_Total     = 0x10,
+            };
+        private:
+            static constexpr size_t NumFramebuffers = 2;
+            static constexpr size_t DynamicCmdSize = 0x20000;
+            static constexpr size_t FragmentUniformSize = sizeof(DKNVGfragUniforms) + 4 - sizeof(DKNVGfragUniforms) % 4;
+            static constexpr size_t MaxImages = 0x1000;
 
-        // From the application
-        const unsigned int viewWidth;
-        const unsigned int viewHeight;
+            /* From the application. */
+            u32 m_view_width;
+            u32 m_view_height;
+            dk::Device m_device;
+            dk::Queue m_queue;
+            CMemPool &m_image_mem_pool;
+            CMemPool &m_code_mem_pool;
+            CMemPool &m_data_mem_pool;
 
-        dk::Device device;
-        dk::Queue queue;
+            /* State. */
+            dk::UniqueCmdBuf m_dyn_cmd_buf;
+            CCmdMemRing<NumFramebuffers> m_dyn_cmd_mem;
+            std::optional<CMemPool::Handle> m_vertex_buffer;
+            CShader m_vertex_shader;
+            CShader m_fragment_shader;
+            CMemPool::Handle m_view_uniform_buffer;
+            CMemPool::Handle m_frag_uniform_buffer;
 
-        CMemPool &imageMemPool;
-        CMemPool &codeMemPool;
-        CMemPool &dataMemPool;
+            u32 m_next_texture_id = 1;
+            std::vector<std::shared_ptr<Texture>> m_textures;
+            CDescriptorSet<MaxImages> m_image_descriptor_set;
+            CDescriptorSet<SamplerType_Total> m_sampler_descriptor_set;
+            std::array<int, MaxImages> m_image_descriptor_mappings;
+            int m_last_image_descriptor = 0;
 
-        // State
-        dk::UniqueCmdBuf dynCmdBuf;
-        CCmdMemRing<NumFramebuffers> dynCmdMem;
+            int AcquireImageDescriptor(std::shared_ptr<Texture> texture, int image);
+            void FreeImageDescriptor(int image);
+            void SetUniforms(const DKNVGcontext &ctx, int offset, int image);
 
-        std::optional<CMemPool::Handle> vertexBuffer;
+            CMemPool::Handle CreateDataBuffer(const void *data, size_t size);
+            void UpdateVertexBuffer(const void *data, size_t size);
 
-        CShader vertexShader;
-        CShader fragmentShader;
-        CMemPool::Handle viewUniformBuffer;
-        CMemPool::Handle fragUniformBuffer;
+            void DrawFill(const DKNVGcontext &ctx, const DKNVGcall &call);
+            void DrawConvexFill(const DKNVGcontext &ctx, const DKNVGcall &call);
+            void DrawStroke(const DKNVGcontext &ctx, const DKNVGcall &call);
+            void DrawTriangles(const DKNVGcontext &ctx, const DKNVGcall &call);
 
-        int nextTextureId = 1;
-        std::vector<std::shared_ptr<Texture>> textures;
-        CDescriptorSet<MaxImages> imageDescriptorSet;
-        CDescriptorSet<SamplerType_Total> samplerDescriptorSet;
+            std::shared_ptr<Texture> FindTexture(int id);
+        public:
+            DkRenderer(unsigned int view_width, unsigned int view_height, dk::Device device, dk::Queue queue, CMemPool &image_mem_pool, CMemPool &code_mem_pool, CMemPool &data_mem_pool);
+            ~DkRenderer();
 
-        std::array<int, MaxImages> imageDescriptorMappings;
-        int lastImageDescriptor = 0;
+            int Create(DKNVGcontext &ctx);
+            int CreateTexture(const DKNVGcontext &ctx, int type, int w, int h, int image_flags, const u8 *data);
+            int DeleteTexture(const DKNVGcontext &ctx, int id);
+            int UpdateTexture(const DKNVGcontext &ctx, int id, int x, int y, int w, int h, const u8 *data);
+            int GetTextureSize(const DKNVGcontext &ctx, int id, int *w, int *h);
+            const DKNVGtextureDescriptor *GetTextureDescriptor(const DKNVGcontext &ctx, int id);
 
-        int AcquireImageDescriptor(std::shared_ptr<Texture> texture, int image);
-        void FreeImageDescriptor(int image);
+            void Flush(DKNVGcontext &ctx);
+    };
 
-        CMemPool::Handle CreateDataBuffer(const void *data, size_t size);
-        void UpdateVertexBuffer(const void *data, size_t size);
-
-        void SetUniforms(DKNVGcontext *ctx, int offset, int image);
-
-        void DrawFill(DKNVGcontext *ctx, DKNVGcall *call);
-        void DrawConvexFill(DKNVGcontext *ctx, DKNVGcall *call);
-        void DrawStroke(DKNVGcontext *ctx, DKNVGcall *call);
-        void DrawTriangles(DKNVGcontext *ctx, DKNVGcall *call);
-
-        std::shared_ptr<Texture> FindTexture(int id);
-    public:
-        DkRenderer(unsigned int viewWidth, unsigned int viewHeight, dk::Device device, dk::Queue queue, CMemPool &imageMemPool, CMemPool &codeMemPool, CMemPool &dataMemPool);
-        ~DkRenderer();
-
-        int Create(DKNVGcontext *ctx);
-        int CreateTexture(DKNVGcontext *ctx, int type, int w, int h, int imageFlags, const unsigned char *data);
-        int DeleteTexture(DKNVGcontext *ctx, int image);
-        int UpdateTexture(DKNVGcontext *ctx, int image, int x, int y, int w, int h, const unsigned char *data);
-        int GetTextureSize(DKNVGcontext *ctx, int image, int *w, int *h);
-        const DKNVGtextureDescriptor *GetTextureDescriptor(DKNVGcontext *ctx, int id);
-
-        void Flush(DKNVGcontext *ctx);
-};
+}

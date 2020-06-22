@@ -14,6 +14,7 @@
 #include "twili.h"
 #endif
 
+// #define USE_OPENGL
 #ifndef USE_OPENGL
 
 //#define DEBUG_NXLINK
@@ -76,7 +77,7 @@ class DkTest final : public CApplication
 
     DkCmdList render_cmdlist;
 
-    std::optional<DkRenderer> renderer;
+    std::optional<nvg::DkRenderer> renderer;
     NVGcontext* vg;
 
     DemoData data;

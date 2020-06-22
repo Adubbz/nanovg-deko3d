@@ -16,34 +16,34 @@ extern "C" {
 static int dknvg__maxi(int a, int b) { return a > b ? a : b; }
 
 static const DKNVGtextureDescriptor* dknvg__findTexture(DKNVGcontext* dk, int id) {
-    return dk->renderer->GetTextureDescriptor(dk, id);
+    return dk->renderer->GetTextureDescriptor(*dk, id);
 }
 
 static int dknvg__renderCreate(void* uptr)
 {
     DKNVGcontext *dk = (DKNVGcontext*)uptr;
-    return dk->renderer->Create(dk);
+    return dk->renderer->Create(*dk);
 }
 
 static int dknvg__renderCreateTexture(void* uptr, int type, int w, int h, int imageFlags, const unsigned char* data)
 {
     DKNVGcontext *dk = (DKNVGcontext*)uptr;
-    return dk->renderer->CreateTexture(dk, type, w, h, imageFlags, data);
+    return dk->renderer->CreateTexture(*dk, type, w, h, imageFlags, data);
 }
 
 static int dknvg__renderDeleteTexture(void* uptr, int image) {
     DKNVGcontext *dk = (DKNVGcontext*)uptr;
-    return dk->renderer->DeleteTexture(dk, image);
+    return dk->renderer->DeleteTexture(*dk, image);
 }
 
 static int dknvg__renderUpdateTexture(void* uptr, int image, int x, int y, int w, int h, const unsigned char* data) {
     DKNVGcontext *dk = (DKNVGcontext*)uptr;
-    return dk->renderer->UpdateTexture(dk, image, x, y, w, h, data);
+    return dk->renderer->UpdateTexture(*dk, image, x, y, w, h, data);
 }
 
 static int dknvg__renderGetTextureSize(void* uptr, int image, int* w, int* h) {
     DKNVGcontext *dk = (DKNVGcontext*)uptr;
-    return dk->renderer->GetTextureSize(dk, image, w, h);
+    return dk->renderer->GetTextureSize(*dk, image, w, h);
 }
 
 static void dknvg__xformToMat3x4(float* m3, float* t) {
@@ -197,7 +197,7 @@ static DKNVGblend dknvg__blendCompositeOperation(NVGcompositeOperationState op) 
 
 static void dknvg__renderFlush(void* uptr) {
     DKNVGcontext *dk = (DKNVGcontext*)uptr;
-    dk->renderer->Flush(dk);
+    dk->renderer->Flush(*dk);
 }
 
 static int dknvg__maxVertCount(const NVGpath* paths, int npaths) {
@@ -473,7 +473,7 @@ static void dknvg__renderDelete(void* uptr) {
     free(dk);
 }
 
-NVGcontext* nvgCreateDk(DkRenderer *renderer, int flags) {
+NVGcontext* nvgCreateDk(nvg::DkRenderer *renderer, int flags) {
     NVGparams params;
     NVGcontext* ctx = NULL;
     DKNVGcontext* dk = (DKNVGcontext*)malloc(sizeof(DKNVGcontext));

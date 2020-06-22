@@ -7,625 +7,536 @@
 #include <math.h>
 #include <switch.h>
 
-// GLM headers
-#define GLM_FORCE_DEFAULT_ALIGNED_GENTYPES // Enforces GLSL std140/std430 alignment rules for glm types
-#define GLM_FORCE_INTRINSICS               // Enables usage of SIMD CPU instructions (requiring the above as well)
+#define GLM_FORCE_DEFAULT_ALIGNED_GENTYPES /* Enforces GLSL std140/std430 alignment rules for glm types. */
+#define GLM_FORCE_INTRINSICS               // Enables usage of SIMD CPU instructions (requiring the above as well) */
 #include <glm/vec2.hpp>
 
-namespace {
+namespace nvg {
 
-    constexpr std::array VertexBufferState =
-    {
-        DkVtxBufferState{sizeof(NVGvertex), 0},
-    };
+    namespace {
 
-    constexpr std::array VertexAttribState =
-    {
-        DkVtxAttribState{0, 0, offsetof(NVGvertex, x), DkVtxAttribSize_2x32, DkVtxAttribType_Float, 0},
-        DkVtxAttribState{0, 0, offsetof(NVGvertex, u), DkVtxAttribSize_2x32, DkVtxAttribType_Float, 0},
-    };
+        constexpr std::array VertexBufferState = { DkVtxBufferState{sizeof(NVGvertex), 0}, };
 
-    struct View
-    {
-        glm::vec2 size;
-    };
+        constexpr std::array VertexAttribState = {
+            DkVtxAttribState{0, 0, offsetof(NVGvertex, x), DkVtxAttribSize_2x32, DkVtxAttribType_Float, 0},
+            DkVtxAttribState{0, 0, offsetof(NVGvertex, u), DkVtxAttribSize_2x32, DkVtxAttribType_Float, 0},
+        };
 
-    void UpdateImage(dk::Image &image, CMemPool &scratchPool, dk::Device device, dk::Queue transferQueue, int type, int x, int y, int w, int h, const unsigned char *data)
+        struct View {
+            glm::vec2 size;
+        };
+
+        void UpdateImage(dk::Image &image, CMemPool &scratchPool, dk::Device device, dk::Queue transferQueue, int type, int x, int y, int w, int h, const u8 *data) {
+            // Do not proceed if no data is provided upfront
+            if (data == nullptr) {
+                return;
+            }
+
+            // Allocate memory from the pool for the image
+            const size_t imageSize = type == NVG_TEXTURE_RGBA ? w * h * 4 : w * h;
+            CMemPool::Handle tempimgmem = scratchPool.allocate(imageSize, DK_IMAGE_LINEAR_STRIDE_ALIGNMENT);
+            memcpy(tempimgmem.getCpuAddr(), data, imageSize);
+
+            dk::UniqueCmdBuf tempcmdbuf = dk::CmdBufMaker{device}.create();
+            CMemPool::Handle tempcmdmem = scratchPool.allocate(DK_MEMBLOCK_ALIGNMENT);
+            tempcmdbuf.addMemory(tempcmdmem.getMemBlock(), tempcmdmem.getOffset(), tempcmdmem.getSize());
+
+            dk::ImageView imageView{image};
+            tempcmdbuf.copyBufferToImage({ tempimgmem.getGpuAddr() }, imageView, { static_cast<uint32_t>(x), static_cast<uint32_t>(y), 0, static_cast<uint32_t>(w), static_cast<uint32_t>(h), 1 });
+
+            transferQueue.submitCommands(tempcmdbuf.finishList());
+            transferQueue.waitIdle();
+
+            // Destroy temp mem
+            tempcmdmem.destroy();
+            tempimgmem.destroy();
+        }
+
+    }
+
+    Texture::Texture(int id) : m_id(id) { /* ... */ }
+
+    Texture::~Texture() {
+        m_image_mem.destroy();
+    }
+
+    void Texture::Initialize(CMemPool &image_pool, CMemPool &scratch_pool, dk::Device device, dk::Queue queue, int type, int w, int h, int image_flags, const u8 *data) {
+        m_texture_descriptor = {
+            .width = w,
+            .height = h,
+            .type = type,
+            .flags = image_flags,
+        };
+
+        /* Create an image layout. */
+        dk::ImageLayout layout;
+        auto layout_maker = dk::ImageLayoutMaker{device}.setFlags(0).setDimensions(w, h);
+        if (type == NVG_TEXTURE_RGBA) {
+            layout_maker.setFormat(DkImageFormat_RGBA8_Unorm);
+        } else {
+            layout_maker.setFormat(DkImageFormat_R8_Unorm);
+        }
+        layout_maker.initialize(layout);
+
+        /* Initialize image. */
+        m_image_mem = image_pool.allocate(layout.getSize(), layout.getAlignment());
+        m_image.initialize(layout, m_image_mem.getMemBlock(), m_image_mem.getOffset());
+        m_image_descriptor.initialize(m_image);
+
+        /* Only update the image if the data isn't null. */
+        if (data != nullptr) {
+            UpdateImage(m_image, scratch_pool, device, queue, type, 0, 0, w, h, data);
+        }
+    }
+
+    int Texture::GetId() {
+        return m_id;
+    }
+
+    const DKNVGtextureDescriptor &Texture::GetDescriptor() {
+        return m_texture_descriptor;
+    }
+
+    dk::Image &Texture::GetImage() {
+        return m_image;
+    }
+
+    dk::ImageDescriptor &Texture::GetImageDescriptor() {
+        return m_image_descriptor;
+    }
+
+    DkRenderer::DkRenderer(unsigned int view_width, unsigned int view_height, dk::Device device, dk::Queue queue, CMemPool &image_mem_pool, CMemPool &code_mem_pool, CMemPool &data_mem_pool) :
+        m_view_width(view_width), m_view_height(view_height), m_device(device), m_queue(queue), m_image_mem_pool(image_mem_pool), m_code_mem_pool(code_mem_pool), m_data_mem_pool(data_mem_pool), m_image_descriptor_mappings({0})
     {
-        // Do not proceed if no data is provided upfront
-        if (data == nullptr)
-        {
+        /* Create a dynamic command buffer and allocate memory for it. */
+        m_dyn_cmd_buf = dk::CmdBufMaker{m_device}.create();
+        m_dyn_cmd_mem.allocate(m_data_mem_pool, DynamicCmdSize);
+
+        m_image_descriptor_set.allocate(m_data_mem_pool);
+        m_sampler_descriptor_set.allocate(m_data_mem_pool);
+
+        m_view_uniform_buffer = m_data_mem_pool.allocate(sizeof(View), DK_UNIFORM_BUF_ALIGNMENT);
+        m_frag_uniform_buffer = m_data_mem_pool.allocate(sizeof(FragmentUniformSize), DK_UNIFORM_BUF_ALIGNMENT);
+
+        /* Create and bind preset samplers. */
+        dk::UniqueCmdBuf init_cmd_buf = dk::CmdBufMaker{m_device}.create();
+        CMemPool::Handle init_cmd_mem = m_data_mem_pool.allocate(DK_MEMBLOCK_ALIGNMENT);
+        init_cmd_buf.addMemory(init_cmd_mem.getMemBlock(), init_cmd_mem.getOffset(), init_cmd_mem.getSize());
+
+        for (u8 i = 0; i < SamplerType_Total; i++) {
+            const DkFilter filter = (i & SamplerType_Nearest) ? DkFilter_Nearest : DkFilter_Linear;
+            const DkMipFilter mip_filter = (i & SamplerType_Nearest) ? DkMipFilter_Nearest : DkMipFilter_Linear;
+            const DkWrapMode u_wrap_mode = (i & SamplerType_RepeatX) ? DkWrapMode_Repeat : DkWrapMode_ClampToEdge;
+            const DkWrapMode v_wrap_mode = (i & SamplerType_RepeatY) ? DkWrapMode_Repeat : DkWrapMode_ClampToEdge;
+
+            auto sampler = dk::Sampler{};
+            auto sampler_descriptor = dk::SamplerDescriptor{};
+            sampler.setFilter(filter, filter, (i & SamplerType_MipFilter) ? mip_filter : DkMipFilter_None);
+            sampler.setWrapMode(u_wrap_mode, v_wrap_mode);
+            sampler_descriptor.initialize(sampler);
+            m_sampler_descriptor_set.update(init_cmd_buf, i, sampler_descriptor);
+        }
+
+        /* Flush the descriptor cache. */
+        init_cmd_buf.barrier(DkBarrier_None, DkInvalidateFlags_Descriptors);
+
+        m_sampler_descriptor_set.bindForSamplers(init_cmd_buf);
+        m_image_descriptor_set.bindForImages(init_cmd_buf);
+
+        m_queue.submitCommands(init_cmd_buf.finishList());
+        m_queue.waitIdle();
+
+        init_cmd_mem.destroy();
+        init_cmd_buf.destroy();
+    }
+
+    DkRenderer::~DkRenderer() {
+        if (m_vertex_buffer) {
+            m_vertex_buffer->destroy();
+        }
+
+        m_view_uniform_buffer.destroy();
+        m_frag_uniform_buffer.destroy();
+        m_textures.clear();
+    }
+
+    int DkRenderer::AcquireImageDescriptor(std::shared_ptr<Texture> texture, int image) {
+        int free_image_descriptor = m_last_image_descriptor + 1;
+        int mapping = 0;
+
+        for (int desc = 0; desc <= m_last_image_descriptor; desc++) {
+            mapping = m_image_descriptor_mappings[desc];
+
+            /* We've found the image descriptor requested. */
+            if (mapping == image) {
+                return desc;
+            }
+
+            /* Update the free image descriptor. */
+            if (mapping == 0 && free_image_descriptor == m_last_image_descriptor + 1) {
+                free_image_descriptor = desc;
+            }
+        }
+
+        /* No descriptors are free. */
+        if (free_image_descriptor >= static_cast<int>(MaxImages)) {
+            return -1;
+        }
+
+        /* Update descriptor sets. */
+        m_image_descriptor_set.update(m_dyn_cmd_buf, free_image_descriptor, texture->GetImageDescriptor());
+
+        /* Flush the descriptor cache. */
+        m_dyn_cmd_buf.barrier(DkBarrier_None, DkInvalidateFlags_Descriptors);
+
+        /* Update the map. */
+        m_image_descriptor_mappings[free_image_descriptor] = image;
+        m_last_image_descriptor = free_image_descriptor;
+        return free_image_descriptor;
+    }
+
+    void DkRenderer::FreeImageDescriptor(int image) {
+        for (int desc = 0; desc <= m_last_image_descriptor; desc++) {
+            if (m_image_descriptor_mappings[desc] == image) {
+                m_image_descriptor_mappings[desc] = 0;
+            }
+        }
+    }
+
+    CMemPool::Handle DkRenderer::CreateDataBuffer(const void *data, size_t size) {
+        auto buffer = m_data_mem_pool.allocate(size);
+        memcpy(buffer.getCpuAddr(), data, size);
+        return buffer;
+    }
+
+    void DkRenderer::UpdateVertexBuffer(const void *data, size_t size) {
+        if (m_vertex_buffer) {
+            m_vertex_buffer->destroy();
+            m_vertex_buffer.reset();
+        }
+
+        m_vertex_buffer = this->CreateDataBuffer(data, size);
+    }
+
+    void DkRenderer::SetUniforms(const DKNVGcontext &ctx, int offset, int image) {
+        m_dyn_cmd_buf.pushConstants(m_frag_uniform_buffer.getGpuAddr(), m_frag_uniform_buffer.getSize(), 0, ctx.fragSize, ctx.uniforms + offset);
+        m_dyn_cmd_buf.bindUniformBuffer(DkStage_Fragment, 0, m_frag_uniform_buffer.getGpuAddr(), m_frag_uniform_buffer.getSize());
+
+        /* Attempt to find a texture. */
+        const auto texture = this->FindTexture(image);
+        if (texture == nullptr) {
             return;
         }
 
-        // Allocate memory from the pool for the image
-        size_t imageSize = type == NVG_TEXTURE_RGBA ? w * h * 4 : w * h;
-        CMemPool::Handle tempimgmem = scratchPool.allocate(imageSize, DK_IMAGE_LINEAR_STRIDE_ALIGNMENT);
-        memcpy(tempimgmem.getCpuAddr(), data, imageSize);
-
-        dk::UniqueCmdBuf tempcmdbuf = dk::CmdBufMaker{device}.create();
-        CMemPool::Handle tempcmdmem = scratchPool.allocate(DK_MEMBLOCK_ALIGNMENT);
-        tempcmdbuf.addMemory(tempcmdmem.getMemBlock(), tempcmdmem.getOffset(), tempcmdmem.getSize());
-
-        dk::ImageView imageView{image};
-        tempcmdbuf.copyBufferToImage({ tempimgmem.getGpuAddr() }, imageView, { static_cast<uint32_t>(x), static_cast<uint32_t>(y), 0, static_cast<uint32_t>(w), static_cast<uint32_t>(h), 1 });
-
-        transferQueue.submitCommands(tempcmdbuf.finishList());
-        transferQueue.waitIdle();
-
-        // Destroy temp mem
-        tempcmdmem.destroy();
-        tempimgmem.destroy();
-    }
-
-}
-
-Texture::Texture(int id) : id(id)
-{
-}
-
-Texture::~Texture()
-{
-    this->imageMem.destroy();
-}
-
-void Texture::Initialize(CMemPool &imagePool, CMemPool &scratchPool, dk::Device device, dk::Queue transferQueue, int type, int w, int h, int imageFlags, const unsigned char *data)
-{
-    this->textureDescriptor = {
-        .width = w,
-        .height = h,
-        .type = type,
-        .flags = imageFlags,
-    };
-
-    // Create an image layout
-    dk::ImageLayout layout;
-    auto layoutMaker = dk::ImageLayoutMaker{device}.setFlags(0).setDimensions(w, h);
-    if (type == NVG_TEXTURE_RGBA)
-    {
-        layoutMaker.setFormat(DkImageFormat_RGBA8_Unorm);
-    }
-    else
-    {
-        layoutMaker.setFormat(DkImageFormat_R8_Unorm);
-    }
-    layoutMaker.initialize(layout);
-
-    // Initialize image
-    this->imageMem = imagePool.allocate(layout.getSize(), layout.getAlignment());
-    this->image.initialize(layout, this->imageMem.getMemBlock(), this->imageMem.getOffset());
-    this->imageDescriptor.initialize(this->image);
-
-    // Only update the image if the data isn't null
-    if (data != nullptr)
-    {
-        UpdateImage(this->image, scratchPool, device, transferQueue, type, 0, 0, w, h, data);
-    }
-}
-
-int Texture::GetId()
-{
-    return this->id;
-}
-
-const DKNVGtextureDescriptor *Texture::GetDescriptor()
-{
-    return &this->textureDescriptor;
-}
-
-dk::Image &Texture::GetImage()
-{
-    return this->image;
-}
-
-dk::ImageDescriptor &Texture::GetImageDescriptor()
-{
-    return this->imageDescriptor;
-}
-
-DkRenderer::DkRenderer(unsigned int viewWidth, unsigned int viewHeight, dk::Device device, dk::Queue queue, CMemPool &imageMemPool, CMemPool &codeMemPool, CMemPool &dataMemPool) :
-    viewWidth(viewWidth), viewHeight(viewHeight), device(device), queue(queue), imageMemPool(imageMemPool), codeMemPool(codeMemPool), dataMemPool(dataMemPool), imageDescriptorMappings({0})
-{
-    // Create a dynamic command buffer and allocate memory for it.
-    this->dynCmdBuf = dk::CmdBufMaker{this->device}.create();
-    this->dynCmdMem.allocate(this->dataMemPool, DynamicCmdSize);
-
-    this->imageDescriptorSet.allocate(this->dataMemPool);
-    this->samplerDescriptorSet.allocate(this->dataMemPool);
-
-    this->viewUniformBuffer = this->dataMemPool.allocate(sizeof(View), DK_UNIFORM_BUF_ALIGNMENT);
-    this->fragUniformBuffer = this->dataMemPool.allocate(sizeof(FragmentUniformSize), DK_UNIFORM_BUF_ALIGNMENT);
-
-    // Create and bind preset samplers
-    dk::UniqueCmdBuf initCmdBuf = dk::CmdBufMaker{this->device}.create();
-    CMemPool::Handle initCmdMem = this->dataMemPool.allocate(DK_MEMBLOCK_ALIGNMENT);
-    initCmdBuf.addMemory(initCmdMem.getMemBlock(), initCmdMem.getOffset(), initCmdMem.getSize());
-
-    for (uint8_t i = 0; i < SamplerType_Total; i++)
-    {
-        const DkFilter filter = (i & SamplerType_Nearest) ? DkFilter_Nearest : DkFilter_Linear;
-        const DkMipFilter mipFilter = (i & SamplerType_Nearest) ? DkMipFilter_Nearest : DkMipFilter_Linear;
-        const DkWrapMode uWrapMode = (i & SamplerType_RepeatX) ? DkWrapMode_Repeat : DkWrapMode_ClampToEdge;
-        const DkWrapMode vWrapMode = (i & SamplerType_RepeatY) ? DkWrapMode_Repeat : DkWrapMode_ClampToEdge;
-
-        auto sampler = dk::Sampler{};
-        auto samplerDescriptor = dk::SamplerDescriptor{};
-        sampler.setFilter(filter, filter, (i & SamplerType_MipFilter) ? mipFilter : DkMipFilter_None);
-        sampler.setWrapMode(uWrapMode, vWrapMode);
-        samplerDescriptor.initialize(sampler);
-        this->samplerDescriptorSet.update(initCmdBuf, i, samplerDescriptor);
-    }
-
-    // Flush the descriptor cache
-    initCmdBuf.barrier(DkBarrier_None, DkInvalidateFlags_Descriptors);
-
-    this->samplerDescriptorSet.bindForSamplers(initCmdBuf);
-    this->imageDescriptorSet.bindForImages(initCmdBuf);
-
-    this->queue.submitCommands(initCmdBuf.finishList());
-    this->queue.waitIdle();
-
-    initCmdMem.destroy();
-    initCmdBuf.destroy();
-}
-
-DkRenderer::~DkRenderer()
-{
-    if (this->vertexBuffer)
-    {
-        this->vertexBuffer->destroy();
-    }
-
-    this->viewUniformBuffer.destroy();
-    this->fragUniformBuffer.destroy();
-    this->textures.clear();
-}
-
-int DkRenderer::AcquireImageDescriptor(std::shared_ptr<Texture> texture, int image)
-{
-    int freeImageDescriptor = this->lastImageDescriptor + 1;
-    int mapping = 0;
-
-    for (int desc = 0; desc <= this->lastImageDescriptor; desc++)
-    {
-        mapping = this->imageDescriptorMappings[desc];
-
-        // We've found the image descriptor requested
-        if (mapping == image)
-        {
-            return desc;
+        /* Acquire an image descriptor. */
+        const int image_desc_id = this->AcquireImageDescriptor(texture, image);
+        if (image_desc_id == -1) {
+            return;
         }
 
-        // Update the free image descriptor
-        if (mapping == 0 && freeImageDescriptor == this->lastImageDescriptor + 1)
-        {
-            freeImageDescriptor = desc;
-        }
+        const int image_flags = texture->GetDescriptor().flags;
+        uint32_t sampler_id = 0;
+
+        if (image_flags & NVG_IMAGE_GENERATE_MIPMAPS) sampler_id |= SamplerType_MipFilter;
+        if (image_flags & NVG_IMAGE_NEAREST)          sampler_id |= SamplerType_Nearest;
+        if (image_flags & NVG_IMAGE_REPEATX)          sampler_id |= SamplerType_RepeatX;
+        if (image_flags & NVG_IMAGE_REPEATY)          sampler_id |= SamplerType_RepeatY;
+
+        m_dyn_cmd_buf.bindTextures(DkStage_Fragment, 0, dkMakeTextureHandle(image_desc_id, sampler_id));
     }
 
-    // No descriptors are free
-    if (freeImageDescriptor >= static_cast<int>(MaxImages))
-    {
-        return -1;
-    }
+    void DkRenderer::DrawFill(const DKNVGcontext &ctx, const DKNVGcall &call) {
+        DKNVGpath *paths = &ctx.paths[call.pathOffset];
+        int npaths = call.pathCount;
 
-    // Update descriptor sets
-    this->imageDescriptorSet.update(this->dynCmdBuf, freeImageDescriptor, texture->GetImageDescriptor());
+        /* Set the stencils to be used. */
+        m_dyn_cmd_buf.setStencil(DkFace_FrontAndBack, 0xFF, 0x0, 0xFF);
 
-    // Flush the descriptor cache
-    this->dynCmdBuf.barrier(DkBarrier_None, DkInvalidateFlags_Descriptors);
-
-    // Update the map
-    this->imageDescriptorMappings[freeImageDescriptor] = image;
-    this->lastImageDescriptor = freeImageDescriptor;
-    return freeImageDescriptor;
-}
-
-void DkRenderer::FreeImageDescriptor(int image)
-{
-    for (int desc = 0; desc <= this->lastImageDescriptor; desc++)
-    {
-        if (this->imageDescriptorMappings[desc] == image)
-        {
-            printf("Freed image descriptor %d for image %d\n", desc, image);
-            this->imageDescriptorMappings[desc] = 0;
-        }
-    }
-}
-
-CMemPool::Handle DkRenderer::CreateDataBuffer(const void *data, size_t size)
-{
-    auto buffer = this->dataMemPool.allocate(size);
-    memcpy(buffer.getCpuAddr(), data, size);
-    return buffer;
-}
-
-void DkRenderer::UpdateVertexBuffer(const void *data, size_t size)
-{
-    if (this->vertexBuffer)
-    {
-        this->vertexBuffer->destroy();
-        this->vertexBuffer.reset();
-    }
-
-    this->vertexBuffer = CreateDataBuffer(data, size);
-}
-
-void DkRenderer::SetUniforms(DKNVGcontext *ctx, int offset, int image)
-{
-    this->dynCmdBuf.pushConstants(this->fragUniformBuffer.getGpuAddr(), this->fragUniformBuffer.getSize(), 0, ctx->fragSize, ctx->uniforms + offset);
-    this->dynCmdBuf.bindUniformBuffer(DkStage_Fragment, 0, this->fragUniformBuffer.getGpuAddr(), this->fragUniformBuffer.getSize());
-
-    auto texture = this->FindTexture(image);
-
-    // Could not find a texture
-    if (texture == nullptr)
-    {
-        return;
-    }
-
-    const int imageDescId = this->AcquireImageDescriptor(texture, image);
-
-    // Failed to find a suitable image descriptor
-    if (imageDescId == -1)
-    {
-        return;
-    }
-
-    const int imageFlags = texture->GetDescriptor()->flags;
-    uint32_t samplerId = 0;
-
-    if (imageFlags & NVG_IMAGE_GENERATE_MIPMAPS) samplerId |= SamplerType_MipFilter;
-    if (imageFlags & NVG_IMAGE_NEAREST)          samplerId |= SamplerType_Nearest;
-    if (imageFlags & NVG_IMAGE_REPEATX)          samplerId |= SamplerType_RepeatX;
-    if (imageFlags & NVG_IMAGE_REPEATY)          samplerId |= SamplerType_RepeatY;
-
-    this->dynCmdBuf.bindTextures(DkStage_Fragment, 0, dkMakeTextureHandle(imageDescId, samplerId));
-}
-
-void DkRenderer::DrawFill(DKNVGcontext *ctx, DKNVGcall *call)
-{
-    DKNVGpath *paths = &ctx->paths[call->pathOffset];
-    int npaths = call->pathCount;
-
-    // Set the stencils to be used
-    this->dynCmdBuf.setStencil(DkFace_FrontAndBack, 0xFF, 0x0, 0xFF);
-
-    // Set the depth stencil state
-    auto depthStencilState = dk::DepthStencilState{}
-        .setStencilTestEnable(true)
-        .setStencilFrontCompareOp(DkCompareOp_Always)
-        .setStencilFrontFailOp(DkStencilOp_Keep)
-        .setStencilFrontDepthFailOp(DkStencilOp_Keep)
-        .setStencilFrontPassOp(DkStencilOp_IncrWrap)
-        .setStencilBackCompareOp(DkCompareOp_Always)
-        .setStencilBackFailOp(DkStencilOp_Keep)
-        .setStencilBackDepthFailOp(DkStencilOp_Keep)
-        .setStencilBackPassOp(DkStencilOp_DecrWrap);
-    this->dynCmdBuf.bindDepthStencilState(depthStencilState);
-
-    // Configure for shape drawing
-    this->dynCmdBuf.bindColorWriteState(dk::ColorWriteState{}.setMask(0, 0));
-    this->SetUniforms(ctx, call->uniformOffset, 0);
-    this->dynCmdBuf.bindRasterizerState(dk::RasterizerState{}.setCullMode(DkFace_None));
-
-    // Draw vertices
-    for (int i = 0; i < npaths; i++)
-    {
-        this->dynCmdBuf.draw(DkPrimitive_TriangleFan, paths[i].fillCount, 1, paths[i].fillOffset, 0);
-    }
-
-    this->dynCmdBuf.bindColorWriteState(dk::ColorWriteState{});
-    this->SetUniforms(ctx, call->uniformOffset + ctx->fragSize, call->image);
-    this->dynCmdBuf.bindRasterizerState(dk::RasterizerState{});
-
-    if (ctx->flags & NVG_ANTIALIAS)
-    {
-        // Configure stencil anti-aliasing
-        depthStencilState
-            .setStencilFrontCompareOp(DkCompareOp_Equal)
-            .setStencilFrontFailOp(DkStencilOp_Keep)
-            .setStencilFrontDepthFailOp(DkStencilOp_Keep)
-            .setStencilFrontPassOp(DkStencilOp_Keep)
-            .setStencilBackCompareOp(DkCompareOp_Equal)
-            .setStencilBackFailOp(DkStencilOp_Keep)
-            .setStencilBackDepthFailOp(DkStencilOp_Keep)
-            .setStencilBackPassOp(DkStencilOp_Keep);
-        this->dynCmdBuf.bindDepthStencilState(depthStencilState);
-
-        // Draw fringes
-        for (int i = 0; i < npaths; i++)
-        {
-            this->dynCmdBuf.draw(DkPrimitive_TriangleStrip, paths[i].strokeCount, 1, paths[i].strokeOffset, 0);
-        }
-    }
-
-    // Configure and draw fill
-    depthStencilState
-        .setStencilFrontCompareOp(DkCompareOp_NotEqual)
-        .setStencilFrontFailOp(DkStencilOp_Zero)
-        .setStencilFrontDepthFailOp(DkStencilOp_Zero)
-        .setStencilFrontPassOp(DkStencilOp_Zero)
-        .setStencilBackCompareOp(DkCompareOp_NotEqual)
-        .setStencilBackFailOp(DkStencilOp_Zero)
-        .setStencilBackDepthFailOp(DkStencilOp_Zero)
-        .setStencilBackPassOp(DkStencilOp_Zero);
-    this->dynCmdBuf.bindDepthStencilState(depthStencilState);
-
-    this->dynCmdBuf.draw(DkPrimitive_TriangleStrip, call->triangleCount, 1, call->triangleOffset, 0);
-
-    // Reset the depth stencil state to default
-    this->dynCmdBuf.bindDepthStencilState(dk::DepthStencilState{});
-}
-
-void DkRenderer::DrawConvexFill(DKNVGcontext *ctx, DKNVGcall *call)
-{
-    DKNVGpath *paths = &ctx->paths[call->pathOffset];
-    int npaths = call->pathCount;
-
-    this->SetUniforms(ctx, call->uniformOffset, call->image);
-
-    for (int i = 0; i < npaths; i++)
-    {
-        this->dynCmdBuf.draw(DkPrimitive_TriangleFan, paths[i].fillCount, 1, paths[i].fillOffset, 0);
-
-        // Draw fringes
-        if (paths[i].strokeCount > 0)
-        {
-            this->dynCmdBuf.draw(DkPrimitive_TriangleStrip, paths[i].strokeCount, 1, paths[i].strokeOffset, 0);
-        }
-    }
-}
-
-void DkRenderer::DrawStroke(DKNVGcontext *ctx, DKNVGcall *call)
-{
-    DKNVGpath* paths = &ctx->paths[call->pathOffset];
-    int npaths = call->pathCount;
-
-    if (ctx->flags & NVG_STENCIL_STROKES)
-    {
-        // Set the stencil to be used
-        this->dynCmdBuf.setStencil(DkFace_Front, 0xFF, 0x0, 0xFF);
-
-        // Configure for filling the stroke base without overlap
-        auto depthStencilState = dk::DepthStencilState{}
-            .setStencilTestEnable(true)
-            .setStencilFrontCompareOp(DkCompareOp_Equal)
-            .setStencilFrontFailOp(DkStencilOp_Keep)
-            .setStencilFrontDepthFailOp(DkStencilOp_Keep)
-            .setStencilFrontPassOp(DkStencilOp_Incr);
-        this->dynCmdBuf.bindDepthStencilState(depthStencilState);
-        this->SetUniforms(ctx, call->uniformOffset + ctx->fragSize, call->image);
-
-        // Draw vertices
-        for (int i = 0; i < npaths; i++)
-        {
-            this->dynCmdBuf.draw(DkPrimitive_TriangleStrip, paths[i].strokeCount, 1, paths[i].strokeOffset, 0);
-        }
-
-        // Configure for drawing anti-aliased pixels
-        depthStencilState.setStencilFrontPassOp(DkStencilOp_Keep);
-        this->dynCmdBuf.bindDepthStencilState(depthStencilState);
-        this->SetUniforms(ctx, call->uniformOffset, call->image);
-
-        // Draw vertices
-        for (int i = 0; i < npaths; i++)
-        {
-            this->dynCmdBuf.draw(DkPrimitive_TriangleStrip, paths[i].strokeCount, 1, paths[i].strokeOffset, 0);
-        }
-
-        // Configure for clearing the stencil buffer
-        depthStencilState
+        /* Set the depth stencil state. */
+        auto depth_stencil_state = dk::DepthStencilState{}
             .setStencilTestEnable(true)
             .setStencilFrontCompareOp(DkCompareOp_Always)
+            .setStencilFrontFailOp(DkStencilOp_Keep)
+            .setStencilFrontDepthFailOp(DkStencilOp_Keep)
+            .setStencilFrontPassOp(DkStencilOp_IncrWrap)
+            .setStencilBackCompareOp(DkCompareOp_Always)
+            .setStencilBackFailOp(DkStencilOp_Keep)
+            .setStencilBackDepthFailOp(DkStencilOp_Keep)
+            .setStencilBackPassOp(DkStencilOp_DecrWrap);
+        m_dyn_cmd_buf.bindDepthStencilState(depth_stencil_state);
+
+        /* Configure for shape drawing. */
+        m_dyn_cmd_buf.bindColorWriteState(dk::ColorWriteState{}.setMask(0, 0));
+        this->SetUniforms(ctx, call.uniformOffset, 0);
+        m_dyn_cmd_buf.bindRasterizerState(dk::RasterizerState{}.setCullMode(DkFace_None));
+
+        /* Draw vertices. */
+        for (int i = 0; i < npaths; i++) {
+            m_dyn_cmd_buf.draw(DkPrimitive_TriangleFan, paths[i].fillCount, 1, paths[i].fillOffset, 0);
+        }
+
+        m_dyn_cmd_buf.bindColorWriteState(dk::ColorWriteState{});
+        this->SetUniforms(ctx, call.uniformOffset + ctx.fragSize, call.image);
+        m_dyn_cmd_buf.bindRasterizerState(dk::RasterizerState{});
+
+        if (ctx.flags & NVG_ANTIALIAS) {
+            /* Configure stencil anti-aliasing. */
+            depth_stencil_state
+                .setStencilFrontCompareOp(DkCompareOp_Equal)
+                .setStencilFrontFailOp(DkStencilOp_Keep)
+                .setStencilFrontDepthFailOp(DkStencilOp_Keep)
+                .setStencilFrontPassOp(DkStencilOp_Keep)
+                .setStencilBackCompareOp(DkCompareOp_Equal)
+                .setStencilBackFailOp(DkStencilOp_Keep)
+                .setStencilBackDepthFailOp(DkStencilOp_Keep)
+                .setStencilBackPassOp(DkStencilOp_Keep);
+            m_dyn_cmd_buf.bindDepthStencilState(depth_stencil_state);
+
+            /* Draw fringes. */
+            for (int i = 0; i < npaths; i++) {
+                m_dyn_cmd_buf.draw(DkPrimitive_TriangleStrip, paths[i].strokeCount, 1, paths[i].strokeOffset, 0);
+            }
+        }
+
+        /* Configure and draw fill. */
+        depth_stencil_state
+            .setStencilFrontCompareOp(DkCompareOp_NotEqual)
             .setStencilFrontFailOp(DkStencilOp_Zero)
             .setStencilFrontDepthFailOp(DkStencilOp_Zero)
-            .setStencilFrontPassOp(DkStencilOp_Zero);
+            .setStencilFrontPassOp(DkStencilOp_Zero)
+            .setStencilBackCompareOp(DkCompareOp_NotEqual)
+            .setStencilBackFailOp(DkStencilOp_Zero)
+            .setStencilBackDepthFailOp(DkStencilOp_Zero)
+            .setStencilBackPassOp(DkStencilOp_Zero);
+        m_dyn_cmd_buf.bindDepthStencilState(depth_stencil_state);
 
-        // Draw vertices
-        for (int i = 0; i < npaths; i++)
-        {
-            this->dynCmdBuf.draw(DkPrimitive_TriangleStrip, paths[i].strokeCount, 1, paths[i].strokeOffset, 0);
-        }
+        m_dyn_cmd_buf.draw(DkPrimitive_TriangleStrip, call.triangleCount, 1, call.triangleOffset, 0);
 
-        // Reset the depth stencil state to default
-        this->dynCmdBuf.bindDepthStencilState(dk::DepthStencilState{});
-    }
-    else
-    {
-        this->SetUniforms(ctx, call->uniformOffset, call->image);
-
-        // Draw vertices
-        for (int i = 0; i < npaths; i++)
-        {
-            this->dynCmdBuf.draw(DkPrimitive_TriangleStrip, paths[i].strokeCount, 1, paths[i].strokeOffset, 0);
-        }
-    }
-}
-
-void DkRenderer::DrawTriangles(DKNVGcontext *ctx, DKNVGcall *call)
-{
-    this->SetUniforms(ctx, call->uniformOffset, call->image);
-    this->dynCmdBuf.draw(DkPrimitive_Triangles, call->triangleCount, 1, call->triangleOffset, 0);
-}
-
-int DkRenderer::Create(DKNVGcontext *ctx)
-{
-    this->vertexShader.load(codeMemPool, "romfs:/shaders/fill_vsh.dksh");
-
-    // Load the appropriate fragment shader depending on whether AA is enabled
-    if (ctx->flags & NVG_ANTIALIAS)
-    {
-        this->fragmentShader.load(codeMemPool, "romfs:/shaders/fill_aa_fsh.dksh");
-    }
-    else
-    {
-        this->fragmentShader.load(codeMemPool, "romfs:/shaders/fill_fsh.dksh");
+        /* Reset the depth stencil state to default. */
+        m_dyn_cmd_buf.bindDepthStencilState(dk::DepthStencilState{});
     }
 
-    // Set the size of fragment uniforms
-    ctx->fragSize = FragmentUniformSize;
-    return 1;
-}
+    void DkRenderer::DrawConvexFill(const DKNVGcontext &ctx, const DKNVGcall &call) {
+        DKNVGpath *paths = &ctx.paths[call.pathOffset];
+        int npaths = call.pathCount;
 
-std::shared_ptr<Texture> DkRenderer::FindTexture(int id)
-{
-    for (auto it = this->textures.begin(); it != this->textures.end(); it++)
-    {
-        if ((*it)->GetId() == id)
-        {
-            return *it;
-        }
-    }
+        this->SetUniforms(ctx, call.uniformOffset, call.image);
 
-    return nullptr;
-}
+        for (int i = 0; i < npaths; i++) {
+            m_dyn_cmd_buf.draw(DkPrimitive_TriangleFan, paths[i].fillCount, 1, paths[i].fillOffset, 0);
 
-int DkRenderer::CreateTexture(DKNVGcontext *ctx, int type, int w, int h, int imageFlags, const unsigned char* data)
-{
-    const auto textureId = this->nextTextureId++;
-    auto texture = std::make_shared<Texture>(textureId);
-    texture->Initialize(this->imageMemPool, this->dataMemPool, this->device, this->queue, type, w, h, imageFlags, data);
-    this->textures.push_back(texture);
-    return texture->GetId();
-}
-
-int DkRenderer::DeleteTexture(DKNVGcontext *ctx, int image)
-{
-    bool found = false;
-
-    for (auto it = this->textures.begin(); it != this->textures.end();)
-    {
-        // Remove textures with the given id
-        if ((*it)->GetId() == image)
-        {
-            it = this->textures.erase(it);
-            found = true;
-        }
-        else
-        {
-            ++it;
-        }
-    }
-
-    // Free any used image descriptors
-    this->FreeImageDescriptor(image);
-    return found;
-}
-
-int DkRenderer::UpdateTexture(DKNVGcontext *ctx, int image, int x, int y, int w, int h, const unsigned char *data)
-{
-    std::shared_ptr<Texture> texture = this->FindTexture(image);
-
-    // Could not find a texture
-    if (texture == nullptr)
-    {
-        return 0;
-    }
-
-    const DKNVGtextureDescriptor *texDesc = texture->GetDescriptor();
-
-    if (texDesc->type == NVG_TEXTURE_RGBA)
-    {
-        data += y * texDesc->width*4;
-    }
-    else
-    {
-        data += y * texDesc->width;
-    }
-    x = 0;
-    w = texDesc->width;
-
-    UpdateImage(texture->GetImage(), this->dataMemPool, this->device, this->queue, texDesc->type, x, y, w, h, data);
-    return 1;
-}
-
-int DkRenderer::GetTextureSize(DKNVGcontext *ctx, int image, int *w, int *h)
-{
-    auto descriptor = this->GetTextureDescriptor(ctx, image);
-
-    if (descriptor == nullptr)
-    {
-        return 0;
-    }
-
-    *w = descriptor->width;
-    *h = descriptor->height;
-    return 1;
-}
-
-const DKNVGtextureDescriptor *DkRenderer::GetTextureDescriptor(DKNVGcontext* ctx, int id)
-{
-    for (auto it = this->textures.begin(); it != this->textures.end(); it++)
-    {
-        if ((*it)->GetId() == id)
-        {
-           return (*it)->GetDescriptor();
-        }
-    }
-
-    return nullptr;
-}
-
-void DkRenderer::Flush(DKNVGcontext *ctx)
-{
-    int i;
-
-    if (ctx->ncalls > 0)
-    {
-        // Prepare dynamic command buffer
-        this->dynCmdMem.begin(this->dynCmdBuf);
-
-        // Update buffers with data
-        this->UpdateVertexBuffer(ctx->verts, ctx->nverts * sizeof(NVGvertex));
-
-        // Enable blending
-        this->dynCmdBuf.bindColorState(dk::ColorState{}.setBlendEnable(0, true));
-
-        // Setup
-        this->dynCmdBuf.bindShaders(DkStageFlag_GraphicsMask, { vertexShader, fragmentShader });
-        this->dynCmdBuf.bindVtxAttribState(VertexAttribState);
-        this->dynCmdBuf.bindVtxBufferState(VertexBufferState);
-        this->dynCmdBuf.bindVtxBuffer(0, this->vertexBuffer->getGpuAddr(), this->vertexBuffer->getSize());
-
-        // Push the view size to the uniform buffer and bind it
-        const auto view = View{glm::vec2{this->viewWidth, this->viewHeight}};
-        this->dynCmdBuf.pushConstants(this->viewUniformBuffer.getGpuAddr(), this->viewUniformBuffer.getSize(), 0, sizeof(view), &view);
-        this->dynCmdBuf.bindUniformBuffer(DkStage_Vertex, 0, this->viewUniformBuffer.getGpuAddr(), this->viewUniformBuffer.getSize());
-
-        // Iterate over calls
-        for (i = 0; i < ctx->ncalls; i++)
-        {
-            DKNVGcall *call = &ctx->calls[i];
-
-            // Perform blending
-            this->dynCmdBuf.bindBlendStates(0, { dk::BlendState{}.setFactors(static_cast<DkBlendFactor>(call->blendFunc.srcRGB), static_cast<DkBlendFactor>(call->blendFunc.dstRGB), static_cast<DkBlendFactor>(call->blendFunc.srcAlpha), static_cast<DkBlendFactor>(call->blendFunc.dstRGB)) });
-
-            if (call->type == DKNVG_FILL)
-            {
-                this->DrawFill(ctx, call);
+            /* Draw fringes. */
+            if (paths[i].strokeCount > 0) {
+                m_dyn_cmd_buf.draw(DkPrimitive_TriangleStrip, paths[i].strokeCount, 1, paths[i].strokeOffset, 0);
             }
-            else if (call->type == DKNVG_CONVEXFILL)
-            {
-                this->DrawConvexFill(ctx, call);
-            }
-            else if (call->type == DKNVG_STROKE)
-            {
-                this->DrawStroke(ctx, call);
-            }
-            else if (call->type == DKNVG_TRIANGLES)
-            {
-                this->DrawTriangles(ctx, call);
+        }
+    }
+
+    void DkRenderer::DrawStroke(const DKNVGcontext &ctx, const DKNVGcall &call) {
+        DKNVGpath* paths = &ctx.paths[call.pathOffset];
+        int npaths = call.pathCount;
+
+        if (ctx.flags & NVG_STENCIL_STROKES) {
+            /* Set the stencil to be used. */
+            m_dyn_cmd_buf.setStencil(DkFace_Front, 0xFF, 0x0, 0xFF);
+
+            /* Configure for filling the stroke base without overlap. */
+            auto depth_stencil_state = dk::DepthStencilState{}
+                .setStencilTestEnable(true)
+                .setStencilFrontCompareOp(DkCompareOp_Equal)
+                .setStencilFrontFailOp(DkStencilOp_Keep)
+                .setStencilFrontDepthFailOp(DkStencilOp_Keep)
+                .setStencilFrontPassOp(DkStencilOp_Incr);
+            m_dyn_cmd_buf.bindDepthStencilState(depth_stencil_state);
+            this->SetUniforms(ctx, call.uniformOffset + ctx.fragSize, call.image);
+
+            /* Draw vertices. */
+            for (int i = 0; i < npaths; i++) {
+                m_dyn_cmd_buf.draw(DkPrimitive_TriangleStrip, paths[i].strokeCount, 1, paths[i].strokeOffset, 0);
             }
 
-            this->queue.submitCommands(this->dynCmdMem.end(this->dynCmdBuf));
-            this->queue.waitIdle();
+            /* Configure for drawing anti-aliased pixels. */
+            depth_stencil_state.setStencilFrontPassOp(DkStencilOp_Keep);
+            m_dyn_cmd_buf.bindDepthStencilState(depth_stencil_state);
+            this->SetUniforms(ctx, call.uniformOffset, call.image);
+
+            /* Draw vertices. */
+            for (int i = 0; i < npaths; i++) {
+                m_dyn_cmd_buf.draw(DkPrimitive_TriangleStrip, paths[i].strokeCount, 1, paths[i].strokeOffset, 0);
+            }
+
+            /* Configure for clearing the stencil buffer. */
+            depth_stencil_state
+                .setStencilTestEnable(true)
+                .setStencilFrontCompareOp(DkCompareOp_Always)
+                .setStencilFrontFailOp(DkStencilOp_Zero)
+                .setStencilFrontDepthFailOp(DkStencilOp_Zero)
+                .setStencilFrontPassOp(DkStencilOp_Zero);
+
+            /* Draw vertices. */
+            for (int i = 0; i < npaths; i++) {
+                m_dyn_cmd_buf.draw(DkPrimitive_TriangleStrip, paths[i].strokeCount, 1, paths[i].strokeOffset, 0);
+            }
+
+            /* Reset the depth stencil state to default. */
+            m_dyn_cmd_buf.bindDepthStencilState(dk::DepthStencilState{});
+        } else {
+            this->SetUniforms(ctx, call.uniformOffset, call.image);
+
+            /* Draw vertices. */
+            for (int i = 0; i < npaths; i++) {
+                m_dyn_cmd_buf.draw(DkPrimitive_TriangleStrip, paths[i].strokeCount, 1, paths[i].strokeOffset, 0);
+            }
         }
     }
 
-    // Reset calls
-    ctx->nverts = 0;
-    ctx->npaths = 0;
-    ctx->ncalls = 0;
-    ctx->nuniforms = 0;
+    void DkRenderer::DrawTriangles(const DKNVGcontext &ctx, const DKNVGcall &call) {
+        this->SetUniforms(ctx, call.uniformOffset, call.image);
+        m_dyn_cmd_buf.draw(DkPrimitive_Triangles, call.triangleCount, 1, call.triangleOffset, 0);
+    }
+
+    int DkRenderer::Create(DKNVGcontext &ctx) {
+        m_vertex_shader.load(m_code_mem_pool, "romfs:/shaders/fill_vsh.dksh");
+
+        /* Load the appropriate fragment shader depending on whether AA is enabled. */
+        if (ctx.flags & NVG_ANTIALIAS) {
+            m_fragment_shader.load(m_code_mem_pool, "romfs:/shaders/fill_aa_fsh.dksh");
+        } else {
+            m_fragment_shader.load(m_code_mem_pool, "romfs:/shaders/fill_fsh.dksh");
+        }
+
+        /* Set the size of fragment uniforms. */
+        ctx.fragSize = FragmentUniformSize;
+        return 1;
+    }
+
+    std::shared_ptr<Texture> DkRenderer::FindTexture(int id) {
+        for (auto it = m_textures.begin(); it != m_textures.end(); it++) {
+            if ((*it)->GetId() == id) {
+                return *it;
+            }
+        }
+
+        return nullptr;
+    }
+
+    int DkRenderer::CreateTexture(const DKNVGcontext &ctx, int type, int w, int h, int image_flags, const unsigned char* data) {
+        const auto texture_id = m_next_texture_id++;
+        auto texture = std::make_shared<Texture>(texture_id);
+        texture->Initialize(m_image_mem_pool, m_data_mem_pool, m_device, m_queue, type, w, h, image_flags, data);
+        m_textures.push_back(texture);
+        return texture->GetId();
+    }
+
+    int DkRenderer::DeleteTexture(const DKNVGcontext &ctx, int image) {
+        bool found = false;
+
+        for (auto it = m_textures.begin(); it != m_textures.end();) {
+            /* Remove textures with the given id. */
+            if ((*it)->GetId() == image) {
+                it = m_textures.erase(it);
+                found = true;
+            } else {
+                ++it;
+            }
+        }
+
+        /* Free any used image descriptors. */
+        this->FreeImageDescriptor(image);
+        return found;
+    }
+
+    int DkRenderer::UpdateTexture(const DKNVGcontext &ctx, int image, int x, int y, int w, int h, const unsigned char *data) {
+        const std::shared_ptr<Texture> texture = this->FindTexture(image);
+
+        /* Could not find a texture. */
+        if (texture == nullptr) {
+            return 0;
+        }
+
+        const DKNVGtextureDescriptor &tex_desc = texture->GetDescriptor();
+        if (tex_desc.type == NVG_TEXTURE_RGBA) {
+            data += y * tex_desc.width*4;
+        } else {
+            data += y * tex_desc.width;
+        }
+        x = 0;
+        w = tex_desc.width;
+
+        UpdateImage(texture->GetImage(), m_data_mem_pool, m_device, m_queue, tex_desc.type, x, y, w, h, data);
+        return 1;
+    }
+
+    int DkRenderer::GetTextureSize(const DKNVGcontext &ctx, int image, int *w, int *h) {
+        const auto descriptor = this->GetTextureDescriptor(ctx, image);
+        if (descriptor == nullptr) {
+            return 0;
+        }
+
+        *w = descriptor->width;
+        *h = descriptor->height;
+        return 1;
+    }
+
+    const DKNVGtextureDescriptor *DkRenderer::GetTextureDescriptor(const DKNVGcontext &ctx, int id) {
+        for (auto it = m_textures.begin(); it != m_textures.end(); it++) {
+            if ((*it)->GetId() == id) {
+                return &(*it)->GetDescriptor();
+            }
+        }
+
+        return nullptr;
+    }
+
+    void DkRenderer::Flush(DKNVGcontext &ctx) {
+        if (ctx.ncalls > 0) {
+            /* Prepare dynamic command buffer. */
+            m_dyn_cmd_mem.begin(m_dyn_cmd_buf);
+
+            /* Update buffers with data. */
+            this->UpdateVertexBuffer(ctx.verts, ctx.nverts * sizeof(NVGvertex));
+
+            /* Enable blending. */
+            m_dyn_cmd_buf.bindColorState(dk::ColorState{}.setBlendEnable(0, true));
+
+            /* Setup. */
+            m_dyn_cmd_buf.bindShaders(DkStageFlag_GraphicsMask, { m_vertex_shader, m_fragment_shader });
+            m_dyn_cmd_buf.bindVtxAttribState(VertexAttribState);
+            m_dyn_cmd_buf.bindVtxBufferState(VertexBufferState);
+            m_dyn_cmd_buf.bindVtxBuffer(0, m_vertex_buffer->getGpuAddr(), m_vertex_buffer->getSize());
+
+            /* Push the view size to the uniform buffer and bind it. */
+            const auto view = View{glm::vec2{m_view_width, m_view_height}};
+            m_dyn_cmd_buf.pushConstants(m_view_uniform_buffer.getGpuAddr(), m_view_uniform_buffer.getSize(), 0, sizeof(view), &view);
+            m_dyn_cmd_buf.bindUniformBuffer(DkStage_Vertex, 0, m_view_uniform_buffer.getGpuAddr(), m_view_uniform_buffer.getSize());
+
+            /* Iterate over calls. */
+            for (int i = 0; i < ctx.ncalls; i++) {
+                const DKNVGcall &call = ctx.calls[i];
+
+                /* Perform blending. */
+                m_dyn_cmd_buf.bindBlendStates(0, { dk::BlendState{}.setFactors(static_cast<DkBlendFactor>(call.blendFunc.srcRGB), static_cast<DkBlendFactor>(call.blendFunc.dstRGB), static_cast<DkBlendFactor>(call.blendFunc.srcAlpha), static_cast<DkBlendFactor>(call.blendFunc.dstRGB)) });
+
+                if (call.type == DKNVG_FILL) {
+                    this->DrawFill(ctx, call);
+                } else if (call.type == DKNVG_CONVEXFILL) {
+                    this->DrawConvexFill(ctx, call);
+                } else if (call.type == DKNVG_STROKE) {
+                    this->DrawStroke(ctx, call);
+                } else if (call.type == DKNVG_TRIANGLES) {
+                    this->DrawTriangles(ctx, call);
+                }
+
+                m_queue.submitCommands(m_dyn_cmd_mem.end(m_dyn_cmd_buf));
+                m_queue.waitIdle();
+            }
+        }
+
+        /* Reset calls. */
+        ctx.nverts = 0;
+        ctx.npaths = 0;
+        ctx.ncalls = 0;
+        ctx.nuniforms = 0;
+    }
+
 }
