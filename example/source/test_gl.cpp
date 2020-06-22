@@ -20,10 +20,6 @@
 
 #include "demo.h"
 
-#ifdef ENABLE_DEBUG
-#include "twili.h"
-#endif
-
 //-----------------------------------------------------------------------------
 // EGL initialization
 //-----------------------------------------------------------------------------
@@ -261,15 +257,6 @@ static void sceneExit()
 
 int main(int argc, char* argv[])
 {
-    #ifdef ENABLE_DEBUG
-    if (R_FAILED(twiliInitialize())) {
-        return 0;
-    }
-    if (R_FAILED(twiliBindStdio())) {
-        return 0;
-    }
-    #endif
-
     // Initialize EGL on the default window
     if (!initEgl(nwindowGetDefault()))
         return EXIT_FAILURE;
@@ -329,10 +316,6 @@ int main(int argc, char* argv[])
 
     // Deinitialize EGL
     deinitEgl();
-
-    #ifdef ENABLE_DEBUG
-    twiliExit();
-    #endif
     return EXIT_SUCCESS;
 }
 #endif

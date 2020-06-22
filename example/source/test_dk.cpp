@@ -10,10 +10,6 @@
 #include "nanovg_dk.h"
 #include "demo.h"
 
-#ifdef ENABLE_DEBUG
-#include "twili.h"
-#endif
-
 // #define USE_OPENGL
 #ifndef USE_OPENGL
 
@@ -258,22 +254,8 @@ public:
 // Main entrypoint
 int main(int argc, char* argv[])
 {
-    #ifdef ENABLE_DEBUG
-    if (R_FAILED(twiliInitialize())) {
-        return 0;
-    }
-    if (R_FAILED(twiliBindStdio())) {
-        return 0;
-    }
-    #endif
-
     DkTest app;
     app.run();
-
-    #ifdef ENABLE_DEBUG
-    twiliExit();
-    #endif
-
     return 0;
 }
 #endif
