@@ -116,8 +116,6 @@ enum NVGimageFlagsGL {
 #include <math.h>
 #include "nanovg.h"
 
-#include "debug.hpp"
-
 enum GLNVGuniformLoc {
 	GLNVG_LOC_VIEWSIZE,
 	GLNVG_LOC_TEX,
@@ -727,7 +725,7 @@ static int glnvg__renderCreateTexture(void* uptr, int type, int w, int h, int im
 
 	if (tex == NULL) return 0;
 
-	OutputDebugString("CreateTexture: Data is null %d\n", (data == NULL));
+	printf("CreateTexture: Data is null %d\n", (data == NULL));
 
 #ifdef NANOVG_GLES2
 	// Check for non-power of 2.

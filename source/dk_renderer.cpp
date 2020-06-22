@@ -6,7 +6,6 @@
 #include <string.h>
 #include <math.h>
 #include <switch.h>
-#include "debug.hpp"
 
 // GLM headers
 #define GLM_FORCE_DEFAULT_ALIGNED_GENTYPES // Enforces GLSL std140/std430 alignment rules for glm types
@@ -228,7 +227,7 @@ void DkRenderer::FreeImageDescriptor(int image)
     {
         if (this->imageDescriptorMappings[desc] == image)
         {
-            OutputDebugString("Freed image descriptor %d for image %d\n", desc, image);
+            printf("Freed image descriptor %d for image %d\n", desc, image);
             this->imageDescriptorMappings[desc] = 0;
         }
     }

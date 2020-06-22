@@ -37,7 +37,7 @@ include $(DEVKITPRO)/libnx/switch_rules
 #   of a homebrew executable (.nro). This is intended to be used for sysmodules.
 #   NACP building is skipped as well.
 #---------------------------------------------------------------------------------
-TARGET		:=	$(notdir $(CURDIR))
+TARGET		:=	nanovg-example
 BUILD		:=	build
 SOURCES		:=	source
 DATA		:=	data
@@ -70,7 +70,7 @@ LIBS	:= -lnanovg -ldeko3d -lnx
 # list of directories containing libraries, this must be the top level containing
 # include and lib
 #---------------------------------------------------------------------------------
-LIBDIRS	:= $(PORTLIBS) $(LIBNX) ../
+LIBDIRS	:= $(PORTLIBS) $(LIBNX) $(CURDIR)/../
 
 #---------------------------------------------------------------------------------
 # no real need to edit anything past this point unless you need to add additional

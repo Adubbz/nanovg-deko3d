@@ -7,7 +7,6 @@
 #include <math.h>
 
 #include "nanovg.h"
-#include "nanovg/debug.hpp"
 #include "nanovg/dk_renderer.hpp"
 
 #ifdef __cplusplus
