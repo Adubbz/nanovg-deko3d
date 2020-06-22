@@ -1,6 +1,3 @@
-
-#include "debug.hpp"
-
 #ifdef USE_OPENGL
 
 #include <stdarg.h>
@@ -21,7 +18,10 @@
 #include "nanovg_gl.h"
 
 #include "demo.h"
+
+#ifdef ENABLE_DEBUG
 #include "twili.h"
+#endif
 
 //-----------------------------------------------------------------------------
 // EGL initialization
@@ -37,7 +37,7 @@ static bool initEgl(NWindow* win)
     s_display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
     if (!s_display)
     {
-        OutputDebugString("Could not connect to display! error: %d", eglGetError());
+        printf("Could not connect to display! error: %d", eglGetError());
         goto _fail0;
     }
 
@@ -47,7 +47,7 @@ static bool initEgl(NWindow* win)
     // Select OpenGL (Core) as the desired graphics API
     if (eglBindAPI(EGL_OPENGL_API) == EGL_FALSE)
     {
-        OutputDebugString("Could not set API! error: %d", eglGetError());
+        printf("Could not set API! error: %d", eglGetError());
         goto _fail1;
     }
 
@@ -68,7 +68,7 @@ static bool initEgl(NWindow* win)
     eglChooseConfig(s_display, framebufferAttributeList, &config, 1, &numConfigs);
     if (numConfigs == 0)
     {
-        OutputDebugString("No config found! error: %d", eglGetError());
+        printf("No config found! error: %d", eglGetError());
         goto _fail1;
     }
 
@@ -76,7 +76,7 @@ static bool initEgl(NWindow* win)
     s_surface = eglCreateWindowSurface(s_display, config, win, nullptr);
     if (!s_surface)
     {
-        OutputDebugString("Surface creation failed! error: %d", eglGetError());
+        printf("Surface creation failed! error: %d", eglGetError());
         goto _fail1;
     }
 
@@ -91,7 +91,7 @@ static bool initEgl(NWindow* win)
     s_context = eglCreateContext(s_display, config, EGL_NO_CONTEXT, contextAttributeList);
     if (!s_context)
     {
-        OutputDebugString("Context creation failed! error: %d", eglGetError());
+        printf("Context creation failed! error: %d", eglGetError());
         goto _fail2;
     }
 
@@ -163,7 +163,7 @@ static GLuint createAndCompileShader(GLenum type, const char* source)
     GLuint handle = glCreateShader(type);
     if (!handle)
     {
-        OutputDebugString("%u: cannot create shader", type);
+        printf("%u: cannot create shader", type);
         return 0;
     }
     glShaderSource(handle, 1, &source, nullptr);
@@ -173,7 +173,7 @@ static GLuint createAndCompileShader(GLenum type, const char* source)
     if (!success)
     {
         glGetShaderInfoLog(handle, sizeof(msg), nullptr, msg);
-        OutputDebugString("%u: %s\n", type, msg);
+        printf("%u: %s\n", type, msg);
         glDeleteShader(handle);
         return 0;
     }
@@ -200,7 +200,7 @@ static void sceneInit()
     {
         char buf[512];
         glGetProgramInfoLog(s_program, sizeof(buf), nullptr, buf);
-        OutputDebugString("Link error: %s", buf);
+        printf("Link error: %s", buf);
     }
     glDeleteShader(vsh);
     glDeleteShader(fsh);
@@ -260,12 +260,14 @@ static void sceneExit()
 
 int main(int argc, char* argv[])
 {
+    #ifdef ENABLE_DEBUG
     if (R_FAILED(twiliInitialize())) {
         return 0;
     }
     if (R_FAILED(twiliBindStdio())) {
         return 0;
     }
+    #endif
 
     // Initialize EGL on the default window
     if (!initEgl(nwindowGetDefault()))
@@ -281,7 +283,7 @@ int main(int argc, char* argv[])
 	vg = nvgCreateGL3(NVG_ANTIALIAS | NVG_STENCIL_STROKES);
 
 	if (vg == NULL) {
-		OutputDebugString("Could not init nanovg.\n");
+		printf("Could not init nanovg.\n");
 		return -1;
 	}
 
@@ -327,7 +329,9 @@ int main(int argc, char* argv[])
     // Deinitialize EGL
     deinitEgl();
 
+    #ifdef ENABLE_DEBUG
     twiliExit();
+    #endif
     return EXIT_SUCCESS;
 }
 #endif

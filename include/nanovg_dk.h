@@ -5,10 +5,10 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
-#include "nanovg.h"
 
-#include "debug.hpp"
-#include "dk_renderer.hpp"
+#include "nanovg.h"
+#include "nanovg/debug.hpp"
+#include "nanovg/dk_renderer.hpp"
 
 #ifdef __cplusplus
 extern "C" {

@@ -5,8 +5,6 @@
 #include <string.h>
 #include <switch.h>
 
-#define ENABLE_DEBUG
-
 void OutputDebugString(const char *format, ...) {
     #ifdef ENABLE_DEBUG
     char tmp[0x1000] = {};

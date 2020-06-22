@@ -1,15 +1,13 @@
-#include "framework/CApplication.h"
-#include "framework/CMemPool.h"
+#include <nanovg/framework/CApplication.h>
+#include <nanovg/framework/CMemPool.h>
 
 // C++ standard library headers
 #include <array>
 #include <optional>
+#include <unistd.h>
 
 #include "nanovg.h"
-#define NANOVG_DK_IMPLEMENTATION
 #include "nanovg_dk.h"
-
-#include "debug.hpp"
 #include "demo.h"
 
 #ifdef ENABLE_DEBUG
@@ -18,15 +16,38 @@
 
 #ifndef USE_OPENGL
 
+//#define DEBUG_NXLINK
+
+#ifdef DEBUG_NXLINK
+static int nxlink_sock = -1;
+#endif
+
+extern "C" void userAppInit(void)
+{
+    Result res = romfsInit();
+    if (R_FAILED(res))
+        fatalThrow(res);
+
+#ifdef DEBUG_NXLINK
+    socketInitializeDefault();
+    nxlink_sock = nxlinkStdioForDebug();
+#endif
+}
+
+extern "C" void userAppExit(void)
+{
+#ifdef DEBUG_NXLINK
+    if (nxlink_sock != -1)
+        close(nxlink_sock);
+    socketExit();
+#endif
+
+    romfsExit();
+}
+
 void OutputDkDebug(void* userData, const char* context, DkResult result, const char* message) 
 {
-    OutputDebugString("Context: %s\nResult: %d\nMessage: %s\n", context, result, message);
-
-    if (result != DkResult_Success) {
-        while (true) {
-            ;
-        }
-    }
+    printf("Context: %s\nResult: %d\nMessage: %s\n", context, result, message);
 }
 
 class DkTest final : public CApplication
@@ -86,7 +107,7 @@ public:
 	    this->vg = nvgCreateDk(&*this->renderer, NVG_ANTIALIAS | NVG_STENCIL_STROKES);
 
 		if (loadDemoData(vg, &this->data) == -1) {
-			OutputDebugString("Failed to load demo data!\n");
+			printf("Failed to load demo data!\n");
 		}
     }
 
@@ -245,15 +266,13 @@ int main(int argc, char* argv[])
     }
     #endif
 
-	printf("Nanovg Deko3D test\n");
-
     DkTest app;
     app.run();
 
     #ifdef ENABLE_DEBUG
     twiliExit();
     #endif
-    
+
     return 0;
 }
 #endif
