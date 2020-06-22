@@ -79,7 +79,7 @@ class DkTest final : public CApplication
     std::optional<DkRenderer> renderer;
     NVGcontext* vg;
 
-	DemoData data;
+    DemoData data;
 
 public:
     DkTest()
@@ -104,16 +104,16 @@ public:
         createFramebufferResources();
 
         this->renderer.emplace(FramebufferWidth, FramebufferHeight, this->device, this->queue, *this->pool_images, *this->pool_code, *this->pool_data);
-	    this->vg = nvgCreateDk(&*this->renderer, NVG_ANTIALIAS | NVG_STENCIL_STROKES);
+        this->vg = nvgCreateDk(&*this->renderer, NVG_ANTIALIAS | NVG_STENCIL_STROKES);
 
-		if (loadDemoData(vg, &this->data) == -1) {
-			printf("Failed to load demo data!\n");
-		}
+        if (loadDemoData(vg, &this->data) == -1) {
+            printf("Failed to load demo data!\n");
+        }
     }
 
     ~DkTest()
     {
-		freeDemoData(vg, &this->data);
+        freeDemoData(vg, &this->data);
 
         // Cleanup vg. This needs to be done first as it relies on the renderer.
         nvgDeleteDk(vg);
@@ -230,12 +230,12 @@ public:
         // Run the main rendering command list
         queue.submitCommands(render_cmdlist);
 
-		nvgBeginFrame(vg, FramebufferWidth, FramebufferHeight, 1.0f);
+        nvgBeginFrame(vg, FramebufferWidth, FramebufferHeight, 1.0f);
         {
             // Render stuff!
             renderDemo(vg, 0, 0, FramebufferWidth, FramebufferHeight, static_cast<float>(ns) / 1000'000'000.0f, blowup, &this->data);
         }
-		nvgEndFrame(vg);
+        nvgEndFrame(vg);
 
         // Now that we are done rendering, present it to the screen
         queue.presentImage(swapchain, slot);

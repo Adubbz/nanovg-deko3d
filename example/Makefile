@@ -53,7 +53,7 @@ OUT_SHADERS	:=	shaders
 ARCH	:=	-march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft -fPIE
 
 CFLAGS	:=	-g -Wall -O2 -ffunction-sections \
-			$(ARCH) $(DEFINES)
+            $(ARCH) $(DEFINES)
 
 CFLAGS	+=	$(INCLUDE) -D__SWITCH__
 
@@ -83,7 +83,7 @@ export OUTPUT	:=	$(CURDIR)/$(TARGET)
 export TOPDIR	:=	$(CURDIR)
 
 export VPATH	:=	$(foreach dir,$(SOURCES),$(CURDIR)/$(dir)) \
-			$(foreach dir,$(DATA),$(CURDIR)/$(dir))
+            $(foreach dir,$(DATA),$(CURDIR)/$(dir))
 
 export DEPSDIR	:=	$(CURDIR)/$(BUILD)
 
@@ -98,11 +98,11 @@ BINFILES	:=	$(foreach dir,$(DATA),$(notdir $(wildcard $(dir)/*.*)))
 #---------------------------------------------------------------------------------
 ifeq ($(strip $(CPPFILES)),)
 #---------------------------------------------------------------------------------
-	export LD	:=	$(CC)
+    export LD	:=	$(CC)
 #---------------------------------------------------------------------------------
 else
 #---------------------------------------------------------------------------------
-	export LD	:=	$(CXX)
+    export LD	:=	$(CXX)
 #---------------------------------------------------------------------------------
 endif
 #---------------------------------------------------------------------------------
@@ -114,112 +114,112 @@ export HFILES_BIN	:=	$(addsuffix .h,$(subst .,_,$(BINFILES)))
 export LIBPATHS	:=	$(foreach dir,$(LIBDIRS),-L$(dir)/lib)
 
 ifneq ($(strip $(ROMFS)),)
-	ROMFS_TARGETS :=
-	ROMFS_FOLDERS :=
-	ifneq ($(strip $(OUT_SHADERS)),)
-		ROMFS_SHADERS := $(ROMFS)/$(OUT_SHADERS)
-		ROMFS_TARGETS += $(patsubst %.glsl, $(ROMFS_SHADERS)/%.dksh, $(GLSLFILES))
-		ROMFS_FOLDERS += $(ROMFS_SHADERS)
-	endif
+    ROMFS_TARGETS :=
+    ROMFS_FOLDERS :=
+    ifneq ($(strip $(OUT_SHADERS)),)
+        ROMFS_SHADERS := $(ROMFS)/$(OUT_SHADERS)
+        ROMFS_TARGETS += $(patsubst %.glsl, $(ROMFS_SHADERS)/%.dksh, $(GLSLFILES))
+        ROMFS_FOLDERS += $(ROMFS_SHADERS)
+    endif
 
-	export ROMFS_DEPS := $(foreach file,$(ROMFS_TARGETS),$(CURDIR)/$(file))
+    export ROMFS_DEPS := $(foreach file,$(ROMFS_TARGETS),$(CURDIR)/$(file))
 endif
 
 export INCLUDE	:=	$(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
-			$(foreach dir,$(LIBDIRS),-I$(dir)/include) \
-			-I$(CURDIR)/$(BUILD)
+            $(foreach dir,$(LIBDIRS),-I$(dir)/include) \
+            -I$(CURDIR)/$(BUILD)
 
 ifeq ($(strip $(CONFIG_JSON)),)
-	jsons := $(wildcard *.json)
-	ifneq (,$(findstring $(TARGET).json,$(jsons)))
-		export APP_JSON := $(TOPDIR)/$(TARGET).json
-	else
-		ifneq (,$(findstring config.json,$(jsons)))
-			export APP_JSON := $(TOPDIR)/config.json
-		endif
-	endif
+    jsons := $(wildcard *.json)
+    ifneq (,$(findstring $(TARGET).json,$(jsons)))
+        export APP_JSON := $(TOPDIR)/$(TARGET).json
+    else
+        ifneq (,$(findstring config.json,$(jsons)))
+            export APP_JSON := $(TOPDIR)/config.json
+        endif
+    endif
 else
-	export APP_JSON := $(TOPDIR)/$(CONFIG_JSON)
+    export APP_JSON := $(TOPDIR)/$(CONFIG_JSON)
 endif
 
 ifeq ($(strip $(ICON)),)
-	icons := $(wildcard *.jpg)
-	ifneq (,$(findstring $(TARGET).jpg,$(icons)))
-		export APP_ICON := $(TOPDIR)/$(TARGET).jpg
-	else
-		ifneq (,$(findstring icon.jpg,$(icons)))
-			export APP_ICON := $(TOPDIR)/icon.jpg
-		endif
-	endif
+    icons := $(wildcard *.jpg)
+    ifneq (,$(findstring $(TARGET).jpg,$(icons)))
+        export APP_ICON := $(TOPDIR)/$(TARGET).jpg
+    else
+        ifneq (,$(findstring icon.jpg,$(icons)))
+            export APP_ICON := $(TOPDIR)/icon.jpg
+        endif
+    endif
 else
-	export APP_ICON := $(TOPDIR)/$(ICON)
+    export APP_ICON := $(TOPDIR)/$(ICON)
 endif
 
 ifeq ($(strip $(NO_ICON)),)
-	export NROFLAGS += --icon=$(APP_ICON)
+    export NROFLAGS += --icon=$(APP_ICON)
 endif
 
 ifeq ($(strip $(NO_NACP)),)
-	export NROFLAGS += --nacp=$(CURDIR)/$(TARGET).nacp
+    export NROFLAGS += --nacp=$(CURDIR)/$(TARGET).nacp
 endif
 
 ifneq ($(APP_TITLEID),)
-	export NACPFLAGS += --titleid=$(APP_TITLEID)
+    export NACPFLAGS += --titleid=$(APP_TITLEID)
 endif
 
 ifneq ($(ROMFS),)
-	export NROFLAGS += --romfsdir=$(CURDIR)/$(ROMFS)
+    export NROFLAGS += --romfsdir=$(CURDIR)/$(ROMFS)
 endif
 
 .PHONY: all clean
 
 #---------------------------------------------------------------------------------
 all: $(ROMFS_TARGETS) | $(BUILD)
-	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
+    @$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
 
 $(BUILD):
-	@mkdir -p $@
+    @mkdir -p $@
 
 ifneq ($(strip $(ROMFS_TARGETS)),)
 
 $(ROMFS_TARGETS): | $(ROMFS_FOLDERS)
 
 $(ROMFS_FOLDERS):
-	@mkdir -p $@
+    @mkdir -p $@
 
 $(ROMFS_SHADERS)/%_vsh.dksh: %_vsh.glsl
-	@echo {vert} $(notdir $<)
-	@uam -s vert -o $@ $<
+    @echo {vert} $(notdir $<)
+    @uam -s vert -o $@ $<
 
 $(ROMFS_SHADERS)/%_tcsh.dksh: %_tcsh.glsl
-	@echo {tess_ctrl} $(notdir $<)
-	@uam -s tess_ctrl -o $@ $<
+    @echo {tess_ctrl} $(notdir $<)
+    @uam -s tess_ctrl -o $@ $<
 
 $(ROMFS_SHADERS)/%_tesh.dksh: %_tesh.glsl
-	@echo {tess_eval} $(notdir $<)
-	@uam -s tess_eval -o $@ $<
+    @echo {tess_eval} $(notdir $<)
+    @uam -s tess_eval -o $@ $<
 
 $(ROMFS_SHADERS)/%_gsh.dksh: %_gsh.glsl
-	@echo {geom} $(notdir $<)
-	@uam -s geom -o $@ $<
+    @echo {geom} $(notdir $<)
+    @uam -s geom -o $@ $<
 
 $(ROMFS_SHADERS)/%_fsh.dksh: %_fsh.glsl
-	@echo {frag} $(notdir $<)
-	@uam -s frag -o $@ $<
+    @echo {frag} $(notdir $<)
+    @uam -s frag -o $@ $<
 
 $(ROMFS_SHADERS)/%.dksh: %.glsl
-	@echo {comp} $(notdir $<)
-	@uam -s comp -o $@ $<
+    @echo {comp} $(notdir $<)
+    @uam -s comp -o $@ $<
 
 endif
 
 #---------------------------------------------------------------------------------
 clean:
-	@echo clean ...
+    @echo clean ...
 ifeq ($(strip $(APP_JSON)),)
-	@rm -fr $(BUILD) $(ROMFS_FOLDERS) $(TARGET).nro $(TARGET).nacp $(TARGET).elf
+    @rm -fr $(BUILD) $(ROMFS_FOLDERS) $(TARGET).nro $(TARGET).nacp $(TARGET).elf
 else
-	@rm -fr $(BUILD) $(ROMFS_FOLDERS) $(TARGET).nsp $(TARGET).nso $(TARGET).npdm $(TARGET).elf
+    @rm -fr $(BUILD) $(ROMFS_FOLDERS) $(TARGET).nsp $(TARGET).nso $(TARGET).npdm $(TARGET).elf
 endif
 
 
@@ -261,8 +261,8 @@ $(OFILES_SRC)	: $(HFILES_BIN)
 #---------------------------------------------------------------------------------
 %.bin.o	%_bin.h :	%.bin
 #---------------------------------------------------------------------------------
-	@echo $(notdir $<)
-	@$(bin2o)
+    @echo $(notdir $<)
+    @$(bin2o)
 
 -include $(DEPENDS)
 

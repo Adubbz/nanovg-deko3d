@@ -279,17 +279,17 @@ int main(int argc, char* argv[])
     // Initialize our scene
     sceneInit();
 
-	NVGcontext* vg = NULL;
-	vg = nvgCreateGL3(NVG_ANTIALIAS | NVG_STENCIL_STROKES);
+    NVGcontext* vg = NULL;
+    vg = nvgCreateGL3(NVG_ANTIALIAS | NVG_STENCIL_STROKES);
 
-	if (vg == NULL) {
-		printf("Could not init nanovg.\n");
-		return -1;
-	}
+    if (vg == NULL) {
+        printf("Could not init nanovg.\n");
+        return -1;
+    }
 
     DemoData data;
-	if (loadDemoData(vg, &data) == -1) {
-		return -1;
+    if (loadDemoData(vg, &data) == -1) {
+        return -1;
     }
 
     u64 tick_ref = armGetSystemTick();
@@ -297,9 +297,9 @@ int main(int argc, char* argv[])
     // Main graphics loop
     while (appletMainLoop())
     {
-		u32 winWidth;
-		u32 winHeight;
-	    nwindowGetDimensions(nwindowGetDefault(), &winWidth, &winHeight);
+        u32 winWidth;
+        u32 winHeight;
+        nwindowGetDimensions(nwindowGetDefault(), &winWidth, &winHeight);
 
         // Get and process input
         hidScanInput();
@@ -310,21 +310,21 @@ int main(int argc, char* argv[])
         // Render stuff!
         sceneRender();
 
-		nvgBeginFrame(vg, winWidth, winHeight, (float)winWidth / (float)winHeight);
-		{
-			// Render stuff!
+        nvgBeginFrame(vg, winWidth, winHeight, (float)winWidth / (float)winHeight);
+        {
+            // Render stuff!
             renderDemo(vg, 0, 0, winWidth, winHeight, (float)armTicksToNs(armGetSystemTick() - tick_ref) / 1000'000'000.0f, 0, &data);
-		}
-		nvgEndFrame(vg);
+        }
+        nvgEndFrame(vg);
 
         eglSwapBuffers(s_display, s_surface);
     }
 
-	freeDemoData(vg, &data);
+    freeDemoData(vg, &data);
 
     // Deinitialize our scene
     sceneExit();
-	nvgDeleteGL3(vg);
+    nvgDeleteGL3(vg);
 
     // Deinitialize EGL
     deinitEgl();

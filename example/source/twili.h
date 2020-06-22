@@ -26,7 +26,7 @@ extern "C" {
 Result twiliInitialize(void);
 
 typedef struct {
-	Service _srv;
+    Service _srv;
 } TwiliPipe;
 
 // Creates a named output pipe with the given null-terminated name. Make sure to
@@ -37,9 +37,9 @@ Result twiliCreateNamedOutputPipe(TwiliPipe *pipe, const char* name);
 // more convenient to use twiliCreateNamedOutputPipe with a string literal.
 // Make sure to call twiliClosePipe when you're done.
 Result twiliCreateExactlyNamedOutputPipe(
-	TwiliPipe *pipe,
-	const char* name,
-	size_t name_len);
+    TwiliPipe *pipe,
+    const char* name,
+    size_t name_len);
 
 // These functions open monitored processes' standard I/O pipes. Make sure to
 // call twiliClosePipe when you're done.
@@ -64,22 +64,22 @@ int twiliBindStdio();
 // buffering is disabled, this call will block until the data has been sent to
 // the twib client.
 Result twiliWritePipe(
-	TwiliPipe *pipe,
-	const char *data,
-	size_t data_length);
+    TwiliPipe *pipe,
+    const char *data,
+    size_t data_length);
 
 
 // Reads data from a pipe. Blocks if none is available. It is not valid to call
 // this on a named output pipe.
 Result twiliReadPipe(
-	TwiliPipe *pipe,
-	char *buffer,
-	size_t buffer_length,
-	size_t *read_length);
+    TwiliPipe *pipe,
+    char *buffer,
+    size_t buffer_length,
+    size_t *read_length);
 
 // Closes and destroys a previously created pipe.
 void twiliClosePipe(
-	TwiliPipe *pipe);
+    TwiliPipe *pipe);
 
 // Call this during cleanup, and do not call any other libtwili functions after
 // this.

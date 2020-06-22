@@ -44,7 +44,7 @@ void main(void) {
     vec4 result;
     float scissor = scissorMask(fpos);
     float strokeAlpha = strokeMask();
-    
+
     if (strokeAlpha < strokeThr) discard;
 
     if (type == 0) {			// Gradient
