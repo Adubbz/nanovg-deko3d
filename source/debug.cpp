@@ -5,7 +5,10 @@
 #include <string.h>
 #include <switch.h>
 
+#define ENABLE_DEBUG
+
 void OutputDebugString(const char *format, ...) {
+    #ifdef ENABLE_DEBUG
     char tmp[0x1000] = {};
     va_list args;
     va_start(args, format);
@@ -13,9 +16,11 @@ void OutputDebugString(const char *format, ...) {
     va_end(args);
     svcOutputDebugString(tmp, strnlen(tmp, 0x1000));
     vfprintf(stdout, format, args);
+    #endif
 }
 
 void OutputDebugBytes(const void *buf, size_t len) {
+    #ifdef ENABLE_DEBUG
     if (buf == NULL || len == 0) {
         return;
     }
@@ -34,4 +39,5 @@ void OutputDebugBytes(const void *buf, size_t len) {
     }
 
     OutputDebugString("\n");
+    #endif
 }

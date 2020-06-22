@@ -1,6 +1,7 @@
 #pragma once
 
 #include <deko3d.hpp>
+#include <map>
 #include <memory>
 #include <vector>
 #include "framework/CDescriptorSet.h"
@@ -140,7 +141,7 @@ class Texture
 		const DKNVGtextureDescriptor *GetDescriptor();
 
 		dk::Image &GetImage();
-		dk::ImageDescriptor GetImageDescriptor();
+		dk::ImageDescriptor &GetImageDescriptor();
 };
 
 class DkRenderer
@@ -157,9 +158,9 @@ class DkRenderer
 
     private:
         static constexpr unsigned int NumFramebuffers = 2;
-        static constexpr unsigned int DynamicCmdSize = 0x10000;
+        static constexpr unsigned int DynamicCmdSize = 0x20000;
 		static constexpr unsigned int FragmentUniformSize = sizeof(DKNVGfragUniforms) + 4 - sizeof(DKNVGfragUniforms) % 4;
-		static constexpr unsigned int MaxImages = 1;
+		static constexpr unsigned int MaxImages = 0x1000;
 
         // From the application
 		const unsigned int viewWidth;
@@ -187,6 +188,12 @@ class DkRenderer
 		std::vector<std::shared_ptr<Texture>> textures;
 		CDescriptorSet<MaxImages> imageDescriptorSet;
     	CDescriptorSet<SamplerType_Total> samplerDescriptorSet;
+
+		std::array<int, MaxImages> imageDescriptorMappings;
+		int lastImageDescriptor = 0;
+
+		int AcquireImageDescriptor(std::shared_ptr<Texture> texture, int image);
+		void FreeImageDescriptor(int image);
 
 		CMemPool::Handle CreateDataBuffer(const void *data, size_t size);
 		void UpdateVertexBuffer(const void *data, size_t size);

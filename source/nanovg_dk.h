@@ -463,8 +463,6 @@ error:
 }
 
 static void dknvg__renderDelete(void* uptr) {
-    OutputDebugString("dknvg__renderDelete\n");
-
 	DKNVGcontext* dk = (DKNVGcontext*)uptr;
 	if (dk == NULL) return;
 

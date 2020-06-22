@@ -18,6 +18,8 @@
 #ifndef NANOVG_GL_UTILS_H
 #define NANOVG_GL_UTILS_H
 
+#ifdef USE_OPENGL
+
 struct NVGLUframebuffer {
 	NVGcontext* ctx;
 	GLuint fbo;
@@ -150,5 +152,7 @@ void nvgluDeleteFramebuffer(NVGLUframebuffer* fb)
 	NVG_NOTUSED(fb);
 #endif
 }
+
+#endif
 
 #endif // NANOVG_GL_IMPLEMENTATION

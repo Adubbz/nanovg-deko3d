@@ -49,8 +49,7 @@ namespace {
         tempcmdbuf.addMemory(tempcmdmem.getMemBlock(), tempcmdmem.getOffset(), tempcmdmem.getSize());
 
         dk::ImageView imageView{image};
-        OutputDebugString("mipLevelOffset: %d\n", imageView.mipLevelOffset);
-        tempcmdbuf.copyBufferToImage({ tempimgmem.getGpuAddr() }, imageView, { x, y, 0, w, h, 1 });
+        tempcmdbuf.copyBufferToImage({ tempimgmem.getGpuAddr() }, imageView, { static_cast<uint32_t>(x), static_cast<uint32_t>(y), 0, static_cast<uint32_t>(w), static_cast<uint32_t>(h), 1 });
 
         transferQueue.submitCommands(tempcmdbuf.finishList());
         transferQueue.waitIdle();
@@ -80,20 +79,6 @@ void Texture::Initialize(CMemPool &imagePool, CMemPool &scratchPool, dk::Device 
         .flags = imageFlags,
     };
 
-    // If the input data is null, allocate a buffer of the requested size. OpenGL apparently allows null input data...
-    void *tmpData = nullptr;
-
-    // Do not proceed if no data is provided upfront
-    if (data == nullptr)
-    {
-        const size_t bufferSize = type == NVG_TEXTURE_RGBA ? w* h * 4 : w * h;
-        tmpData = malloc(bufferSize);
-        data = static_cast<const unsigned char *>(tmpData);
-    }
-
-    // OutputDebugString("Image bytes: \n");
-    // OutputDebugBytes(data, imageSize);
-
     // Create an image layout
     dk::ImageLayout layout;
     auto layoutMaker = dk::ImageLayoutMaker{device}.setFlags(0).setDimensions(w, h);
@@ -107,18 +92,15 @@ void Texture::Initialize(CMemPool &imagePool, CMemPool &scratchPool, dk::Device 
     }
     layoutMaker.initialize(layout);
 
-    OutputDebugString("Texture with id %d initialized\n", this->id);
     // Initialize image
     this->imageMem = imagePool.allocate(layout.getSize(), layout.getAlignment());
     this->image.initialize(layout, this->imageMem.getMemBlock(), this->imageMem.getOffset());
     this->imageDescriptor.initialize(this->image);
 
-    UpdateImage(this->image, scratchPool, device, transferQueue, type, 0, 0, w, h, data);
-
-    // Free our tmp data if needed
-    if (tmpData != nullptr)
+    // Only update the image if the data isn't null
+    if (data != nullptr)
     {
-        free(tmpData);
+        UpdateImage(this->image, scratchPool, device, transferQueue, type, 0, 0, w, h, data);
     }
 }
 
@@ -137,12 +119,13 @@ dk::Image &Texture::GetImage()
     return this->image;
 }
 
-dk::ImageDescriptor Texture::GetImageDescriptor()
+dk::ImageDescriptor &Texture::GetImageDescriptor()
 {
     return this->imageDescriptor;
 }
 
-DkRenderer::DkRenderer(unsigned int viewWidth, unsigned int viewHeight, dk::Device device, dk::Queue queue, CMemPool &imageMemPool, CMemPool &codeMemPool, CMemPool &dataMemPool) : viewWidth(viewWidth), viewHeight(viewHeight), device(device), queue(queue), imageMemPool(imageMemPool), codeMemPool(codeMemPool), dataMemPool(dataMemPool)
+DkRenderer::DkRenderer(unsigned int viewWidth, unsigned int viewHeight, dk::Device device, dk::Queue queue, CMemPool &imageMemPool, CMemPool &codeMemPool, CMemPool &dataMemPool) :
+    viewWidth(viewWidth), viewHeight(viewHeight), device(device), queue(queue), imageMemPool(imageMemPool), codeMemPool(codeMemPool), dataMemPool(dataMemPool), imageDescriptorMappings({0})
 {
     // Create a dynamic command buffer and allocate memory for it.
     this->dynCmdBuf = dk::CmdBufMaker{this->device}.create();
@@ -155,9 +138,9 @@ DkRenderer::DkRenderer(unsigned int viewWidth, unsigned int viewHeight, dk::Devi
     this->fragUniformBuffer = this->dataMemPool.allocate(sizeof(FragmentUniformSize), DK_UNIFORM_BUF_ALIGNMENT);
 
     // Create and bind preset samplers
-    dk::UniqueCmdBuf samplerCmdBuf = dk::CmdBufMaker{this->device}.create();
-    CMemPool::Handle samplerCmdMem = this->dataMemPool.allocate(DK_MEMBLOCK_ALIGNMENT);
-    samplerCmdBuf.addMemory(samplerCmdMem.getMemBlock(), samplerCmdMem.getOffset(), samplerCmdMem.getSize());
+    dk::UniqueCmdBuf initCmdBuf = dk::CmdBufMaker{this->device}.create();
+    CMemPool::Handle initCmdMem = this->dataMemPool.allocate(DK_MEMBLOCK_ALIGNMENT);
+    initCmdBuf.addMemory(initCmdMem.getMemBlock(), initCmdMem.getOffset(), initCmdMem.getSize());
 
     for (uint8_t i = 0; i < SamplerType_Total; i++)
     {
@@ -171,18 +154,20 @@ DkRenderer::DkRenderer(unsigned int viewWidth, unsigned int viewHeight, dk::Devi
         sampler.setFilter(filter, filter, (i & SamplerType_MipFilter) ? mipFilter : DkMipFilter_None);
         sampler.setWrapMode(uWrapMode, vWrapMode);
         samplerDescriptor.initialize(sampler);
-        this->samplerDescriptorSet.update(samplerCmdBuf, i, samplerDescriptor);
+        this->samplerDescriptorSet.update(initCmdBuf, i, samplerDescriptor);
     }
 
     // Flush the descriptor cache
-    samplerCmdBuf.barrier(DkBarrier_None, DkInvalidateFlags_Descriptors);
+    initCmdBuf.barrier(DkBarrier_None, DkInvalidateFlags_Descriptors);
 
-    this->samplerDescriptorSet.bindForSamplers(samplerCmdBuf);
-    this->queue.submitCommands(samplerCmdBuf.finishList());
+    this->samplerDescriptorSet.bindForSamplers(initCmdBuf);
+    this->imageDescriptorSet.bindForImages(initCmdBuf);
+
+    this->queue.submitCommands(initCmdBuf.finishList());
     this->queue.waitIdle();
 
-    samplerCmdMem.destroy();
-    samplerCmdBuf.destroy();
+    initCmdMem.destroy();
+    initCmdBuf.destroy();
 }
 
 DkRenderer::~DkRenderer()
@@ -195,6 +180,58 @@ DkRenderer::~DkRenderer()
     this->viewUniformBuffer.destroy();
     this->fragUniformBuffer.destroy();
     this->textures.clear();
+}
+
+int DkRenderer::AcquireImageDescriptor(std::shared_ptr<Texture> texture, int image)
+{
+    int freeImageDescriptor = this->lastImageDescriptor + 1;
+    int mapping = 0;
+
+    for (int desc = 0; desc <= this->lastImageDescriptor; desc++)
+    {
+        mapping = this->imageDescriptorMappings[desc];
+
+        // We've found the image descriptor requested
+        if (mapping == image)
+        {
+            return desc;
+        }
+
+        // Update the free image descriptor
+        if (mapping == 0 && freeImageDescriptor == this->lastImageDescriptor + 1)
+        {
+            freeImageDescriptor = desc;
+        }
+    }
+
+    // No descriptors are free
+    if (freeImageDescriptor >= static_cast<int>(MaxImages))
+    {
+        return -1;
+    }
+
+    // Update descriptor sets
+    this->imageDescriptorSet.update(this->dynCmdBuf, freeImageDescriptor, texture->GetImageDescriptor());
+
+    // Flush the descriptor cache
+    this->dynCmdBuf.barrier(DkBarrier_None, DkInvalidateFlags_Descriptors);
+
+    // Update the map
+    this->imageDescriptorMappings[freeImageDescriptor] = image;
+    this->lastImageDescriptor = freeImageDescriptor;
+    return freeImageDescriptor;
+}
+
+void DkRenderer::FreeImageDescriptor(int image)
+{
+    for (int desc = 0; desc <= this->lastImageDescriptor; desc++)
+    {
+        if (this->imageDescriptorMappings[desc] == image)
+        {
+            OutputDebugString("Freed image descriptor %d for image %d\n", desc, image);
+            this->imageDescriptorMappings[desc] = 0;
+        }
+    }
 }
 
 CMemPool::Handle DkRenderer::CreateDataBuffer(const void *data, size_t size)
@@ -228,14 +265,13 @@ void DkRenderer::SetUniforms(DKNVGcontext *ctx, int offset, int image)
         return;
     }
 
-    // Update descriptor sets
-    this->imageDescriptorSet.update(this->dynCmdBuf, 0, texture->GetImageDescriptor());
+    const int imageDescId = this->AcquireImageDescriptor(texture, image);
 
-    // Flush the descriptor cache
-    this->dynCmdBuf.barrier(DkBarrier_None, DkInvalidateFlags_Descriptors);
-
-    // Bind the image and sampler descriptor sets
-    this->imageDescriptorSet.bindForImages(this->dynCmdBuf);
+    // Failed to find a suitable image descriptor
+    if (imageDescId == -1)
+    {
+        return;
+    }
 
     const int imageFlags = texture->GetDescriptor()->flags;
     uint32_t samplerId = 0;
@@ -245,7 +281,7 @@ void DkRenderer::SetUniforms(DKNVGcontext *ctx, int offset, int image)
     if (imageFlags & NVG_IMAGE_REPEATX)          samplerId |= SamplerType_RepeatX;
     if (imageFlags & NVG_IMAGE_REPEATY)          samplerId |= SamplerType_RepeatY;
 
-    this->dynCmdBuf.bindTextures(DkStage_Fragment, 0, dkMakeTextureHandle(0, samplerId));
+    this->dynCmdBuf.bindTextures(DkStage_Fragment, 0, dkMakeTextureHandle(imageDescId, samplerId));
 }
 
 void DkRenderer::DrawFill(DKNVGcontext *ctx, DKNVGcall *call)
@@ -316,6 +352,7 @@ void DkRenderer::DrawFill(DKNVGcontext *ctx, DKNVGcall *call)
         .setStencilBackDepthFailOp(DkStencilOp_Zero)
         .setStencilBackPassOp(DkStencilOp_Zero);
     this->dynCmdBuf.bindDepthStencilState(depthStencilState);
+
     this->dynCmdBuf.draw(DkPrimitive_TriangleStrip, call->triangleCount, 1, call->triangleOffset, 0);
 
     // Reset the depth stencil state to default
@@ -434,14 +471,10 @@ int DkRenderer::Create(DKNVGcontext *ctx)
 
 std::shared_ptr<Texture> DkRenderer::FindTexture(int id)
 {
-    OutputDebugString("Finding texture %d...\n", id);
-
     for (auto it = this->textures.begin(); it != this->textures.end(); it++)
     {
-        OutputDebugString("Texture entry id %d\n", (*it)->GetId());
         if ((*it)->GetId() == id)
         {
-            OutputDebugString("%d matches %d\n", (*it)->GetId(), id);
             return *it;
         }
     }
@@ -452,7 +485,6 @@ std::shared_ptr<Texture> DkRenderer::FindTexture(int id)
 int DkRenderer::CreateTexture(DKNVGcontext *ctx, int type, int w, int h, int imageFlags, const unsigned char* data)
 {
     const auto textureId = this->nextTextureId++;
-    OutputDebugString("Created texture with id %d w: %d, h: %d\n", textureId, w, h);
     auto texture = std::make_shared<Texture>(textureId);
     texture->Initialize(this->imageMemPool, this->dataMemPool, this->device, this->queue, type, w, h, imageFlags, data);
     this->textures.push_back(texture);
@@ -477,6 +509,8 @@ int DkRenderer::DeleteTexture(DKNVGcontext *ctx, int image)
         }
     }
 
+    // Free any used image descriptors
+    this->FreeImageDescriptor(image);
     return found;
 }
 
@@ -502,8 +536,6 @@ int DkRenderer::UpdateTexture(DKNVGcontext *ctx, int image, int x, int y, int w,
     }
     x = 0;
     w = texDesc->width;
-
-    OutputDebugString("Updating texture with id %d... Original: x: %d, y: %d, w: %d, h: %d\nNew: x: %d, y: %d, w: %d, h: %d\n", image, 0, 0, texDesc->width, texDesc->height, x, y, w, h);
 
     UpdateImage(texture->GetImage(), this->dataMemPool, this->device, this->queue, texDesc->type, x, y, w, h, data);
     return 1;
@@ -586,9 +618,10 @@ void DkRenderer::Flush(DKNVGcontext *ctx)
             {
                 this->DrawTriangles(ctx, call);
             }
-        }
 
-        this->queue.submitCommands(this->dynCmdMem.end(this->dynCmdBuf));
+            this->queue.submitCommands(this->dynCmdMem.end(this->dynCmdBuf));
+            this->queue.waitIdle();
+        }
     }
 
     // Reset calls

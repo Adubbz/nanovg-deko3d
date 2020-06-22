@@ -15,8 +15,11 @@
 //    misrepresented as being the original software.
 // 3. This notice may not be removed or altered from any source distribution.
 //
+
 #ifndef NANOVG_GL_H
 #define NANOVG_GL_H
+
+#ifdef USE_OPENGL
 
 #ifdef __cplusplus
 extern "C" {
@@ -1080,34 +1083,35 @@ static void glnvg__stroke(GLNVGcontext* gl, GLNVGcall* call)
 
 	if (gl->flags & NVG_STENCIL_STROKES) {
 
-		// glEnable(GL_STENCIL_TEST);
-		// glnvg__stencilMask(gl, 0xff);
+		glEnable(GL_STENCIL_TEST);
+		glnvg__stencilMask(gl, 0xff);
 
 		// Fill the stroke base without overlap
-		// glnvg__stencilFunc(gl, GL_EQUAL, 0x0, 0xff);
-		// glStencilOp(GL_KEEP, GL_KEEP, GL_INCR);
-		// glnvg__setUniforms(gl, call->uniformOffset + gl->fragSize, call->image);
+		glnvg__stencilFunc(gl, GL_EQUAL, 0x0, 0xff);
+		glStencilOp(GL_KEEP, GL_KEEP, GL_INCR);
+		glnvg__setUniforms(gl, call->uniformOffset + gl->fragSize, call->image);
 		glnvg__checkError(gl, "stroke fill 0");
 		for (i = 0; i < npaths; i++)
 			glDrawArrays(GL_TRIANGLE_STRIP, paths[i].strokeOffset, paths[i].strokeCount);
 
-		// // Draw anti-aliased pixels.
-		// glnvg__setUniforms(gl, call->uniformOffset, call->image);
-		// glnvg__stencilFunc(gl, GL_EQUAL, 0x00, 0xff);
-		// glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
-		// for (i = 0; i < npaths; i++)
-		// 	glDrawArrays(GL_TRIANGLE_STRIP, paths[i].strokeOffset, paths[i].strokeCount);
+		// Draw anti-aliased pixels.
+		glnvg__setUniforms(gl, call->uniformOffset, call->image);
+		glnvg__stencilFunc(gl, GL_EQUAL, 0x00, 0xff);
+		glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
+		for (i = 0; i < npaths; i++)
+			glDrawArrays(GL_TRIANGLE_STRIP, paths[i].strokeOffset, paths[i].strokeCount);
 
-		// // Clear stencil buffer.
-		// glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
-		// glnvg__stencilFunc(gl, GL_ALWAYS, 0x0, 0xff);
-		// glStencilOp(GL_ZERO, GL_ZERO, GL_ZERO);
-		// glnvg__checkError(gl, "stroke fill 1");
-		// for (i = 0; i < npaths; i++)
-		// 	glDrawArrays(GL_TRIANGLE_STRIP, paths[i].strokeOffset, paths[i].strokeCount);
-		// glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+		// Clear stencil buffer.
+		glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+		glnvg__stencilFunc(gl, GL_ALWAYS, 0x0, 0xff);
+		glStencilOp(GL_ZERO, GL_ZERO, GL_ZERO);
+		glnvg__checkError(gl, "stroke fill 1");
+		for (i = 0; i < npaths; i++) {
+			glDrawArrays(GL_TRIANGLE_STRIP, paths[i].strokeOffset, paths[i].strokeCount);
+		}
+		glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 
-		// glDisable(GL_STENCIL_TEST);
+		glDisable(GL_STENCIL_TEST);
 
 //		glnvg__convertPaint(gl, nvg__fragUniformPtr(gl, call->uniformOffset + gl->fragSize), paint, scissor, strokeWidth, fringe, 1.0f - 0.5f/255.0f);
 
@@ -1664,5 +1668,7 @@ GLuint nvglImageHandleGLES3(NVGcontext* ctx, int image)
 	GLNVGtexture* tex = glnvg__findTexture(gl, image);
 	return tex->tex;
 }
+
+#endif /* USE_OPENGL */
 
 #endif /* NANOVG_GL_IMPLEMENTATION */
