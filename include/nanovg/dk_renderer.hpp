@@ -149,7 +149,6 @@ namespace nvg {
                 SamplerType_Total     = 0x10,
             };
         private:
-            static constexpr size_t NumFramebuffers = 2;
             static constexpr size_t DynamicCmdSize = 0x20000;
             static constexpr size_t FragmentUniformSize = sizeof(DKNVGfragUniforms) + 4 - sizeof(DKNVGfragUniforms) % 4;
             static constexpr size_t MaxImages = 0x1000;
@@ -165,7 +164,7 @@ namespace nvg {
 
             /* State. */
             dk::UniqueCmdBuf m_dyn_cmd_buf;
-            CCmdMemRing<NumFramebuffers> m_dyn_cmd_mem;
+            CCmdMemRing<1> m_dyn_cmd_mem;
             std::optional<CMemPool::Handle> m_vertex_buffer;
             CShader m_vertex_shader;
             CShader m_fragment_shader;

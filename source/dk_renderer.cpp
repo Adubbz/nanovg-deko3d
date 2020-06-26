@@ -8,7 +8,7 @@
 #include <switch.h>
 
 #define GLM_FORCE_DEFAULT_ALIGNED_GENTYPES /* Enforces GLSL std140/std430 alignment rules for glm types. */
-#define GLM_FORCE_INTRINSICS               // Enables usage of SIMD CPU instructions (requiring the above as well) */
+#define GLM_FORCE_INTRINSICS               /* Enables usage of SIMD CPU instructions (requiring the above as well). */
 #include <glm/vec2.hpp>
 
 namespace nvg {
@@ -27,12 +27,12 @@ namespace nvg {
         };
 
         void UpdateImage(dk::Image &image, CMemPool &scratchPool, dk::Device device, dk::Queue transferQueue, int type, int x, int y, int w, int h, const u8 *data) {
-            // Do not proceed if no data is provided upfront
+            /* Do not proceed if no data is provided upfront. */
             if (data == nullptr) {
                 return;
             }
 
-            // Allocate memory from the pool for the image
+            /* Allocate memory from the pool for the image. */
             const size_t imageSize = type == NVG_TEXTURE_RGBA ? w * h * 4 : w * h;
             CMemPool::Handle tempimgmem = scratchPool.allocate(imageSize, DK_IMAGE_LINEAR_STRIDE_ALIGNMENT);
             memcpy(tempimgmem.getCpuAddr(), data, imageSize);
@@ -47,7 +47,7 @@ namespace nvg {
             transferQueue.submitCommands(tempcmdbuf.finishList());
             transferQueue.waitIdle();
 
-            // Destroy temp mem
+            /* Destroy temp mem. */
             tempcmdmem.destroy();
             tempimgmem.destroy();
         }
@@ -533,7 +533,6 @@ namespace nvg {
             }
 
             m_queue.submitCommands(m_dyn_cmd_mem.end(m_dyn_cmd_buf));
-            m_queue.waitIdle();
         }
 
         /* Reset calls. */
