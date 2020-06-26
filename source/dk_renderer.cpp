@@ -203,18 +203,20 @@ namespace nvg {
         }
     }
 
-    CMemPool::Handle DkRenderer::CreateDataBuffer(const void *data, size_t size) {
-        auto buffer = m_data_mem_pool.allocate(size);
-        memcpy(buffer.getCpuAddr(), data, size);
-        return buffer;
-    }
-
     void DkRenderer::UpdateVertexBuffer(const void *data, size_t size) {
-        if (!m_vertex_buffer || m_vertex_buffer->getSize() < size) {
+        /* Destroy the existing vertex buffer if it is too small. */
+        if (m_vertex_buffer && m_vertex_buffer->getSize() < size) {
             m_vertex_buffer->destroy();
             m_vertex_buffer.reset();
-            m_vertex_buffer = this->CreateDataBuffer(data, size);
-        } else {
+        }
+
+        /* Create a new buffer if needed. */
+        if (!m_vertex_buffer) {
+            m_vertex_buffer = m_data_mem_pool.allocate(size);
+        }
+
+        /* Copy data to the vertex buffer if it exists. */
+        if (m_vertex_buffer) {
             memcpy(m_vertex_buffer->getCpuAddr(), data, size);
         }
     }

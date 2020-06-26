@@ -183,7 +183,6 @@ namespace nvg {
             void FreeImageDescriptor(int image);
             void SetUniforms(const DKNVGcontext &ctx, int offset, int image);
 
-            CMemPool::Handle CreateDataBuffer(const void *data, size_t size);
             void UpdateVertexBuffer(const void *data, size_t size);
 
             void DrawFill(const DKNVGcontext &ctx, const DKNVGcall &call);
