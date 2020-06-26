@@ -210,12 +210,13 @@ namespace nvg {
     }
 
     void DkRenderer::UpdateVertexBuffer(const void *data, size_t size) {
-        if (m_vertex_buffer) {
+        if (!m_vertex_buffer || m_vertex_buffer->getSize() < size) {
             m_vertex_buffer->destroy();
             m_vertex_buffer.reset();
+            m_vertex_buffer = this->CreateDataBuffer(data, size);
+        } else {
+            memcpy(m_vertex_buffer->getCpuAddr(), data, size);
         }
-
-        m_vertex_buffer = this->CreateDataBuffer(data, size);
     }
 
     void DkRenderer::SetUniforms(const DKNVGcontext &ctx, int offset, int image) {
