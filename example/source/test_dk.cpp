@@ -110,6 +110,9 @@ public:
 
     ~DkTest()
     {
+        // Destroy the framebuffer resources. This should be done first.
+        destroyFramebufferResources();
+
         freeDemoData(vg, &this->data);
 
         // Cleanup vg. This needs to be done first as it relies on the renderer.
@@ -117,9 +120,6 @@ public:
 
         // Destroy the renderer
         this->renderer.reset();
-
-        // Destroy the framebuffer resources
-        destroyFramebufferResources();
     }
 
     void createFramebufferResources()
