@@ -372,6 +372,7 @@ namespace nvg {
                 .setStencilFrontFailOp(DkStencilOp_Zero)
                 .setStencilFrontDepthFailOp(DkStencilOp_Zero)
                 .setStencilFrontPassOp(DkStencilOp_Zero);
+            m_dyn_cmd_buf.bindDepthStencilState(depth_stencil_state);
 
             /* Draw vertices. */
             for (int i = 0; i < npaths; i++) {
