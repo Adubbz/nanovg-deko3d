@@ -9,6 +9,7 @@
 #include "nanovg.h"
 #include "nanovg_dk.h"
 #include "demo.h"
+#include "perf.h"
 
 // #define USE_OPENGL
 #ifndef USE_OPENGL
@@ -77,6 +78,8 @@ class DkTest final : public CApplication
     NVGcontext* vg;
 
     DemoData data;
+    PerfGraph fps;
+    float prevTime;
 
 public:
     DkTest()
@@ -102,6 +105,8 @@ public:
 
         this->renderer.emplace(FramebufferWidth, FramebufferHeight, this->device, this->queue, *this->pool_images, *this->pool_code, *this->pool_data);
         this->vg = nvgCreateDk(&*this->renderer, NVG_ANTIALIAS | NVG_STENCIL_STROKES);
+
+        initGraph(&fps, GRAPH_RENDER_FPS, "Frame Time");
 
         if (loadDemoData(vg, &this->data) == -1) {
             printf("Failed to load demo data!\n");
@@ -218,6 +223,10 @@ public:
 
     void render(u64 ns, int blowup)
     {
+        float time = ns / 1000000000.0;
+        float dt = time - prevTime;
+        prevTime = time;
+
         // Acquire a framebuffer from the swapchain (and wait for it to be available)
         int slot = queue.acquireImage(swapchain);
 
@@ -227,10 +236,13 @@ public:
         // Run the main rendering command list
         queue.submitCommands(render_cmdlist);
 
+        updateGraph(&fps, dt);
+
         nvgBeginFrame(vg, FramebufferWidth, FramebufferHeight, 1.0f);
         {
             // Render stuff!
-            renderDemo(vg, 0, 0, FramebufferWidth, FramebufferHeight, static_cast<float>(ns) / 1000'000'000.0f, blowup, &this->data);
+            renderDemo(vg, 0, 0, FramebufferWidth, FramebufferHeight, time, blowup, &this->data);
+            renderGraph(vg, 5,5, &fps);
         }
         nvgEndFrame(vg);
 
