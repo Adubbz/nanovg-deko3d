@@ -526,10 +526,10 @@ namespace nvg {
                 } else if (call.type == DKNVG_TRIANGLES) {
                     this->DrawTriangles(ctx, call);
                 }
-
-                m_queue.submitCommands(m_dyn_cmd_mem.end(m_dyn_cmd_buf));
-                m_queue.waitIdle();
             }
+
+            m_queue.submitCommands(m_dyn_cmd_mem.end(m_dyn_cmd_buf));
+            m_queue.waitIdle();
         }
 
         /* Reset calls. */
