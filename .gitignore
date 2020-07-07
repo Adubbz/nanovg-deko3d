@@ -1,3 +1,6 @@
+# deko3d shaders
+*.dksh
+
 # Prerequisites
 *.d
 
